@@ -1,0 +1,32 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build",
+            "type": "shell",
+            "command": "zig build",
+            "problemMatcher": [],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            }
+        },
+        {
+            "label": "run search tests",
+            "type": "shell",
+            "command": "zig test -femit-bin=${workspaceFolder}/zig-out/lib/search-test ${workspaceFolder}/src/search.zig",
+            "problemMatcher": [],
+            "group": {
+                "kind": "test",
+            }
+        },{
+            "label": "run benchmark tests",
+            "type": "shell",
+            "command": "zig test -femit-bin=${workspaceFolder}/zig-out/lib/benchmark-test ${workspaceFolder}/src/benchmark.zig",
+            "problemMatcher": [],
+            "group": {
+                "kind": "test",
+            }
+        }
+    ]
+}
