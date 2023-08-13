@@ -1,4 +1,5 @@
 const std = @import("std");
+const p = @import("pattern.zig");
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
 const expect = testing.expect;

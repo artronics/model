@@ -9,19 +9,26 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const options = b.addOptions();
+    options.addOption(usize, "max_pattern_len", 32);
+
     const lib = b.addStaticLibrary(.{
         .name = "fzf",
         .root_source_file = .{ .path = "src/fzf.zig" },
         .target = target,
         .optimize = optimize,
     });
-    b.installArtifact(lib);
 
+    const m = options.createModule();
+    lib.addModule("fzf_options", m);
+
+    b.installArtifact(lib);
     const main_tests = b.addTest(.{
         .root_source_file = .{ .path = "src/fzf.zig" },
         .target = target,
         .optimize = optimize,
     });
+    main_tests.addModule("fzf_options", m);
 
     const run_main_tests = b.addRunArtifact(main_tests);
 

@@ -12,9 +12,17 @@
             }
         },
         {
-            "label": "run search tests",
+            "label": "run fzf tests",
             "type": "shell",
-            "command": "zig test -femit-bin=${workspaceFolder}/zig-out/lib/search-test ${workspaceFolder}/src/search.zig",
+            "command": "${env:HOME}/.local/bin/zig test -femit-bin=${workspaceFolder}/zig-out/lib/search-test ${workspaceFolder}/src/fzf.zig",
+            "problemMatcher": [],
+            "group": {
+                "kind": "test",
+            }
+        },{
+            "label": "run pattern tests",
+            "type": "shell",
+            "command": "${env:HOME}/.local/bin/zig test -femit-bin=${workspaceFolder}/zig-out/lib/search-test ${workspaceFolder}/src/pattern.zig",
             "problemMatcher": [],
             "group": {
                 "kind": "test",
@@ -22,7 +30,7 @@
         },{
             "label": "run benchmark tests",
             "type": "shell",
-            "command": "zig test -femit-bin=${workspaceFolder}/zig-out/lib/benchmark-test ${workspaceFolder}/src/benchmark.zig",
+            "command": "${env:HOME}/.local/bin/zig test -femit-bin=${workspaceFolder}/zig-out/lib/benchmark-test ${workspaceFolder}/src/benchmark.zig",
             "problemMatcher": [],
             "group": {
                 "kind": "test",
