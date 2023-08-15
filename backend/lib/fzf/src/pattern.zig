@@ -6,7 +6,11 @@ const options = .{ .max_pattern_len = 64, .max_sub_pattern_size = 8 };
 const Token = union(enum) {
     case_sensitive: void,
     space: void,
-    single_quote: void,
+    exact_match: void,
+    prefix: void,
+    suffix: void,
+    inverse: void,
+
     incomplete: void,
 
     char: u8,
@@ -34,7 +38,8 @@ pub fn parse(pattern: []const u8) Pattern {
                 }
                 break :blk Token{ .char = p };
             },
-            '\'' => if (i == 0 or tokens[ti - 1] == Token.space) Token.single_quote else Token{ .char = '\'' },
+            '\'' => if (i == 0 or tokens[ti - 1] == Token.space) Token.exact_match else Token{ .char = '\'' },
+            '^' => if (i == 0 or tokens[ti - 1] == Token.space) Token.prefix else Token{ .char = '^' },
             else => Token{ .char = p },
         };
 
@@ -48,6 +53,7 @@ pub fn parse(pattern: []const u8) Pattern {
     var buf_i: usize = 0;
     var buf_offset: usize = 0;
 
+    const MT = Pattern.Chunk.MatchType;
     while (ti < token_len) : ({
         ti += 1;
         chunk_no += 1;
@@ -57,8 +63,11 @@ pub fn parse(pattern: []const u8) Pattern {
         while (ti < token_len) : (ti += 1) {
             switch (tokens[ti]) {
                 Token.space => break,
-                Token.single_quote => {
-                    chunk.is_fuzzy = false;
+                Token.exact_match => {
+                    chunk.match_type = MT.exact;
+                },
+                Token.prefix => {
+                    chunk.match_type = MT.exact;
                 },
                 Token.char => |ch| {
                     ptrn.buf[buf_i] = ch;
@@ -84,7 +93,17 @@ pub const Pattern = struct {
     pub const Chunk = struct {
         pattern: []const u8 = undefined,
         is_case_insensitive: bool = true,
-        is_fuzzy: bool = true,
+        match_type: MatchType = MatchType.fuzzy,
+
+        pub const MatchType = enum {
+            fuzzy,
+            exact,
+            prefix_exact,
+            suffix_exact,
+            inverse_exact,
+            inverse_prefix_exact,
+            inverse_suffix_exact,
+        };
     };
 };
 
@@ -92,12 +111,13 @@ const testing = std.testing;
 const eq = testing.expectEqual;
 const sliceEq = testing.expectEqualSlices;
 test "pattern" {
+    const MT = Pattern.Chunk.MatchType;
     {
         const p = parse("foo");
 
         const ck = p.chunks[0];
         try sliceEq(u8, "foo", ck.pattern);
-        try eq(true, ck.is_fuzzy);
+        try eq(MT.fuzzy, ck.match_type);
         try eq(true, ck.is_case_insensitive);
     }
     { // space -> chunk delimiter
@@ -112,14 +132,14 @@ test "pattern" {
 
         p = parse(" 'foo");
         try sliceEq(u8, "", p.chunks[0].pattern);
-        try eq(true, p.chunks[0].is_fuzzy);
+        try eq(MT.fuzzy, p.chunks[0].match_type);
 
         try sliceEq(u8, "foo", p.chunks[1].pattern);
-        try eq(false, p.chunks[1].is_fuzzy);
+        try eq(MT.exact, p.chunks[1].match_type);
 
         p = parse("' foo");
         try sliceEq(u8, "", p.chunks[0].pattern);
-        try eq(false, p.chunks[0].is_fuzzy);
+        try eq(MT.exact, p.chunks[0].match_type);
         try sliceEq(u8, "foo", p.chunks[1].pattern);
     }
     { // escape
@@ -135,23 +155,28 @@ test "pattern" {
     { // exact match
         var p = parse("'foo");
 
-        try eq(false, p.chunks[0].is_fuzzy);
+        try eq(MT.exact, p.chunks[0].match_type);
         try sliceEq(u8, "foo", p.chunks[0].pattern);
 
         p = parse("fo'o");
-        try eq(true, p.chunks[0].is_fuzzy);
+        try eq(MT.fuzzy, p.chunks[0].match_type);
         try sliceEq(u8, "fo'o", p.chunks[0].pattern);
 
         p = parse("'foo'");
-        try eq(false, p.chunks[0].is_fuzzy);
+        try eq(MT.exact, p.chunks[0].match_type);
         try sliceEq(u8, "foo'", p.chunks[0].pattern);
+    }
+    {
+        var p = parse("^foo");
+        try eq(MT.exact, p.chunks[0].match_type);
+        try sliceEq(u8, "foo", p.chunks[0].pattern);
     }
     { // multi-chunk
         var p = parse("'foo 'bar");
 
-        try eq(false, p.chunks[0].is_fuzzy);
+        try eq(MT.exact, p.chunks[0].match_type);
         try sliceEq(u8, "foo", p.chunks[0].pattern);
-        try eq(false, p.chunks[1].is_fuzzy);
+        try eq(MT.exact, p.chunks[1].match_type);
         try sliceEq(u8, "bar", p.chunks[1].pattern);
     }
 }
