@@ -39,7 +39,9 @@ pub fn parse(pattern: []const u8) Pattern {
                 break :blk Token{ .char = p };
             },
             '\'' => if (i == 0 or tokens[ti - 1] == Token.space) Token.exact_match else Token{ .char = '\'' },
-            '^' => if (i == 0 or tokens[ti - 1] == Token.space) Token.prefix else Token{ .char = '^' },
+            '^' => if (i == 0 or tokens[ti - 1] == Token.space or tokens[ti - 1] == Token.inverse) Token.prefix else Token{ .char = '^' },
+            '!' => if (i == 0 or tokens[ti - 1] == Token.space) Token.inverse else Token{ .char = '!' },
+            '$' => if (i == pattern.len - 1 or pattern[i + 1] == ' ') Token.suffix else Token{ .char = '!' },
             else => Token{ .char = p },
         };
 
@@ -66,8 +68,28 @@ pub fn parse(pattern: []const u8) Pattern {
                 Token.exact_match => {
                     chunk.match_type = MT.exact;
                 },
+                Token.inverse => {
+                    chunk.match_type = MT.inverse_exact;
+                },
                 Token.prefix => {
-                    chunk.match_type = MT.exact;
+                    switch (chunk.match_type) {
+                        MT.inverse_exact => {
+                            chunk.match_type = MT.inverse_prefix_exact;
+                        },
+                        else => {
+                            chunk.match_type = MT.prefix_exact;
+                        },
+                    }
+                },
+                Token.suffix => {
+                    switch (chunk.match_type) {
+                        MT.inverse_exact => {
+                            chunk.match_type = MT.inverse_suffix_exact;
+                        },
+                        else => {
+                            chunk.match_type = MT.suffix_exact;
+                        },
+                    }
                 },
                 Token.char => |ch| {
                     ptrn.buf[buf_i] = ch;
@@ -166,9 +188,29 @@ test "pattern" {
         try eq(MT.exact, p.chunks[0].match_type);
         try sliceEq(u8, "foo'", p.chunks[0].pattern);
     }
-    {
+    { // Inverse Exact
+        var p = parse("!foo");
+        try eq(MT.inverse_exact, p.chunks[0].match_type);
+        try sliceEq(u8, "foo", p.chunks[0].pattern);
+    }
+    { // Prefix Exact
         var p = parse("^foo");
-        try eq(MT.exact, p.chunks[0].match_type);
+        try eq(MT.prefix_exact, p.chunks[0].match_type);
+        try sliceEq(u8, "foo", p.chunks[0].pattern);
+    }
+    { // Suffix Exact
+        var p = parse("foo$");
+        try eq(MT.suffix_exact, p.chunks[0].match_type);
+        try sliceEq(u8, "foo", p.chunks[0].pattern);
+    }
+    { // Inverse Suffix Exact
+        var p = parse("!foo$");
+        try eq(MT.inverse_suffix_exact, p.chunks[0].match_type);
+        try sliceEq(u8, "foo", p.chunks[0].pattern);
+    }
+    { // Inverse Prefix Exact
+        var p = parse("!^foo");
+        try eq(MT.inverse_prefix_exact, p.chunks[0].match_type);
         try sliceEq(u8, "foo", p.chunks[0].pattern);
     }
     { // multi-chunk
