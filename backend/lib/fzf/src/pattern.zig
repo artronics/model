@@ -10,60 +10,21 @@ const Token = union(enum) {
     suffix: void,
     inverse: void,
 
-    incomplete: void,
-
     char: u8,
 };
 
 pub fn parse(pattern: []const u8) Pattern {
     var ptrn = Pattern{};
 
-    // Tokenizer
+    const MT = Pattern.Chunk.MatchType;
     var tokens: [options.max_pattern_len]Token = undefined;
+    const token_len = tokenizer(pattern, &tokens);
+
     var ti: usize = 0;
-    var i: usize = 0;
-    while (i < pattern.len) : (i += 1) {
-        const p = pattern[i];
-        tokens[ti] = switch (p) {
-            ' ' => Token.delimiter,
-            '\\' => blk: {
-                if (i + 1 == pattern.len) break :blk Token.incomplete;
-                if (pattern[i + 1] == ' ') {
-                    i += 1; // consume one
-                    break :blk Token{ .char = ' ' };
-                } else if (pattern[i + 1] == '\'') {
-                    i += 1; // consume one
-                    break :blk Token{ .char = '\'' };
-                } else if (pattern[i + 1] == '!') {
-                    i += 1; // consume one
-                    break :blk Token{ .char = '!' };
-                } else if (pattern[i + 1] == '$') {
-                    i += 1; // consume one
-                    break :blk Token{ .char = '$' };
-                } else if (pattern[i + 1] == '^') {
-                    i += 1; // consume one
-                    break :blk Token{ .char = '^' };
-                }
-                break :blk Token{ .char = p };
-            },
-            '\'' => if (i == 0 or tokens[ti - 1] == Token.delimiter) Token.exact_match else Token{ .char = '\'' },
-            '^' => if (i == 0 or tokens[ti - 1] == Token.delimiter or tokens[ti - 1] == Token.inverse) Token.prefix else Token{ .char = '^' },
-            '!' => if (i == 0 or tokens[ti - 1] == Token.delimiter) Token.inverse else Token{ .char = '!' },
-            '$' => if (i == pattern.len - 1 or pattern[i + 1] == ' ') Token.suffix else Token{ .char = '$' },
-            else => Token{ .char = p },
-        };
-
-        ti += 1;
-    }
-    const token_len = ti;
-
-    // Parser
     var chunk_no: usize = 0;
-    ti = 0;
     var buf_i: usize = 0;
     var buf_offset: usize = 0;
 
-    const MT = Pattern.Chunk.MatchType;
     while (ti < token_len) : ({
         ti += 1;
         chunk_no += 1;
@@ -104,7 +65,6 @@ pub fn parse(pattern: []const u8) Pattern {
                     buf_i += 1;
                     chunk_size += 1;
                 },
-                else => {},
             }
         }
         chunk.pattern = ptrn.buf[buf_offset .. buf_offset + chunk_size];
@@ -113,6 +73,39 @@ pub fn parse(pattern: []const u8) Pattern {
     }
 
     return ptrn;
+}
+
+fn tokenizer(pattern: []const u8, tokens: []Token) usize {
+    var t_len: usize = 0;
+    var i: usize = 0;
+    while (i < pattern.len) : (i += 1) {
+        const p = pattern[i];
+        tokens[t_len] = switch (p) {
+            ' ' => Token.delimiter,
+            '\\' => blk: {
+                if (i == pattern.len - 1) break :blk Token{ .char = p };
+
+                const chars = [_]u8{ ' ', '\'', '!', '$', '^' };
+                inline for (chars) |c| {
+                    if (pattern[i + 1] == c) {
+                        i += 1; // consume one
+                        break :blk Token{ .char = c };
+                    }
+                }
+
+                break :blk Token{ .char = p };
+            },
+            '\'' => if (i == 0 or tokens[t_len - 1] == Token.delimiter) Token.exact_match else Token{ .char = '\'' },
+            '^' => if (i == 0 or tokens[t_len - 1] == Token.delimiter or tokens[t_len - 1] == Token.inverse) Token.prefix else Token{ .char = '^' },
+            '!' => if (i == 0 or tokens[t_len - 1] == Token.delimiter) Token.inverse else Token{ .char = '!' },
+            '$' => if (i == pattern.len - 1 or pattern[i + 1] == ' ') Token.suffix else Token{ .char = '$' },
+            else => Token{ .char = p },
+        };
+
+        t_len += 1;
+    }
+
+    return t_len;
 }
 
 pub const Pattern = struct {
@@ -174,6 +167,9 @@ test "parse pattern" {
     { // escape
         var p = parse("\\ foo\\ bar");
         try sliceEq(u8, " foo bar", p.chunks[0].pattern);
+
+        p = parse("foo\\");
+        try sliceEq(u8, "foo\\", p.chunks[0].pattern);
 
         p = parse("\\'foo\\ bar");
         try sliceEq(u8, "'foo bar", p.chunks[0].pattern);
