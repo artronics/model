@@ -4,8 +4,7 @@ const std = @import("std");
 const options = .{ .max_pattern_len = 64, .max_sub_pattern_size = 8 };
 
 const Token = union(enum) {
-    case_sensitive: void,
-    space: void,
+    delimiter: void,
     exact_match: void,
     prefix: void,
     suffix: void,
@@ -26,7 +25,7 @@ pub fn parse(pattern: []const u8) Pattern {
     while (i < pattern.len) : (i += 1) {
         const p = pattern[i];
         tokens[ti] = switch (p) {
-            ' ' => Token.space,
+            ' ' => Token.delimiter,
             '\\' => blk: {
                 if (i + 1 == pattern.len) break :blk Token.incomplete;
                 if (pattern[i + 1] == ' ') {
@@ -35,13 +34,22 @@ pub fn parse(pattern: []const u8) Pattern {
                 } else if (pattern[i + 1] == '\'') {
                     i += 1; // consume one
                     break :blk Token{ .char = '\'' };
+                } else if (pattern[i + 1] == '!') {
+                    i += 1; // consume one
+                    break :blk Token{ .char = '!' };
+                } else if (pattern[i + 1] == '$') {
+                    i += 1; // consume one
+                    break :blk Token{ .char = '$' };
+                } else if (pattern[i + 1] == '^') {
+                    i += 1; // consume one
+                    break :blk Token{ .char = '^' };
                 }
                 break :blk Token{ .char = p };
             },
-            '\'' => if (i == 0 or tokens[ti - 1] == Token.space) Token.exact_match else Token{ .char = '\'' },
-            '^' => if (i == 0 or tokens[ti - 1] == Token.space or tokens[ti - 1] == Token.inverse) Token.prefix else Token{ .char = '^' },
-            '!' => if (i == 0 or tokens[ti - 1] == Token.space) Token.inverse else Token{ .char = '!' },
-            '$' => if (i == pattern.len - 1 or pattern[i + 1] == ' ') Token.suffix else Token{ .char = '!' },
+            '\'' => if (i == 0 or tokens[ti - 1] == Token.delimiter) Token.exact_match else Token{ .char = '\'' },
+            '^' => if (i == 0 or tokens[ti - 1] == Token.delimiter or tokens[ti - 1] == Token.inverse) Token.prefix else Token{ .char = '^' },
+            '!' => if (i == 0 or tokens[ti - 1] == Token.delimiter) Token.inverse else Token{ .char = '!' },
+            '$' => if (i == pattern.len - 1 or pattern[i + 1] == ' ') Token.suffix else Token{ .char = '$' },
             else => Token{ .char = p },
         };
 
@@ -64,7 +72,7 @@ pub fn parse(pattern: []const u8) Pattern {
         var chunk_size: usize = 0;
         while (ti < token_len) : (ti += 1) {
             switch (tokens[ti]) {
-                Token.space => break,
+                Token.delimiter => break,
                 Token.exact_match => {
                     chunk.match_type = MT.exact;
                 },
@@ -132,15 +140,14 @@ pub const Pattern = struct {
 const testing = std.testing;
 const eq = testing.expectEqual;
 const sliceEq = testing.expectEqualSlices;
-test "pattern" {
+test "parse pattern" {
     const MT = Pattern.Chunk.MatchType;
     {
         const p = parse("foo");
 
-        const ck = p.chunks[0];
-        try sliceEq(u8, "foo", ck.pattern);
-        try eq(MT.fuzzy, ck.match_type);
-        try eq(true, ck.is_case_insensitive);
+        try sliceEq(u8, "foo", p.chunks[0].pattern);
+        try eq(MT.fuzzy, p.chunks[0].match_type);
+        try eq(true, p.chunks[0].is_case_insensitive);
     }
     { // space -> chunk delimiter
         var p = parse("foo bar");
@@ -173,6 +180,18 @@ test "pattern" {
 
         p = parse("a\\b");
         try sliceEq(u8, "a\\b", p.chunks[0].pattern);
+
+        p = parse("\\!a");
+        try sliceEq(u8, "!a", p.chunks[0].pattern);
+
+        p = parse("\\!^a");
+        try sliceEq(u8, "!^a", p.chunks[0].pattern);
+
+        p = parse("\\^a");
+        try sliceEq(u8, "^a", p.chunks[0].pattern);
+
+        p = parse("a\\$");
+        try sliceEq(u8, "a$", p.chunks[0].pattern);
     }
     { // exact match
         var p = parse("'foo");
@@ -188,37 +207,64 @@ test "pattern" {
         try eq(MT.exact, p.chunks[0].match_type);
         try sliceEq(u8, "foo'", p.chunks[0].pattern);
     }
-    { // Inverse Exact
+    { // inverse exact
         var p = parse("!foo");
         try eq(MT.inverse_exact, p.chunks[0].match_type);
         try sliceEq(u8, "foo", p.chunks[0].pattern);
+
+        p = parse("fo!o");
+        try eq(MT.fuzzy, p.chunks[0].match_type);
+        try sliceEq(u8, "fo!o", p.chunks[0].pattern);
     }
-    { // Prefix Exact
+    { // prefix exact
         var p = parse("^foo");
         try eq(MT.prefix_exact, p.chunks[0].match_type);
         try sliceEq(u8, "foo", p.chunks[0].pattern);
+
+        p = parse("fo^o");
+        try eq(MT.fuzzy, p.chunks[0].match_type);
+        try sliceEq(u8, "fo^o", p.chunks[0].pattern);
+
+        p = parse("^!foo");
+        try eq(MT.prefix_exact, p.chunks[0].match_type);
+        try sliceEq(u8, "!foo", p.chunks[0].pattern);
     }
-    { // Suffix Exact
+    { // suffix exact
         var p = parse("foo$");
         try eq(MT.suffix_exact, p.chunks[0].match_type);
         try sliceEq(u8, "foo", p.chunks[0].pattern);
+
+        p = parse("fo$o");
+        try eq(MT.fuzzy, p.chunks[0].match_type);
+        try sliceEq(u8, "fo$o", p.chunks[0].pattern);
     }
-    { // Inverse Suffix Exact
+    { // inverse suffix exact
         var p = parse("!foo$");
         try eq(MT.inverse_suffix_exact, p.chunks[0].match_type);
         try sliceEq(u8, "foo", p.chunks[0].pattern);
+
+        p = parse("foo!$");
+        try eq(MT.suffix_exact, p.chunks[0].match_type);
+        try sliceEq(u8, "foo!", p.chunks[0].pattern);
     }
-    { // Inverse Prefix Exact
+    { // inverse prefix exact
+        var p = parse("!^foo");
+        try eq(MT.inverse_prefix_exact, p.chunks[0].match_type);
+        try sliceEq(u8, "foo", p.chunks[0].pattern);
+    }
+    { // conflicts
         var p = parse("!^foo");
         try eq(MT.inverse_prefix_exact, p.chunks[0].match_type);
         try sliceEq(u8, "foo", p.chunks[0].pattern);
     }
     { // multi-chunk
-        var p = parse("'foo 'bar");
+        var p = parse("foo 'bar !baz$");
 
-        try eq(MT.exact, p.chunks[0].match_type);
+        try eq(MT.fuzzy, p.chunks[0].match_type);
         try sliceEq(u8, "foo", p.chunks[0].pattern);
         try eq(MT.exact, p.chunks[1].match_type);
         try sliceEq(u8, "bar", p.chunks[1].pattern);
+        try eq(MT.inverse_suffix_exact, p.chunks[2].match_type);
+        try sliceEq(u8, "baz", p.chunks[2].pattern);
     }
 }
