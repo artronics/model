@@ -2,6 +2,7 @@ const std = @import("std");
 // TODO: import fzf_options doesn't work when running test for this file
 // const options = @import("fzf_options");
 const options = .{ .max_pattern_len = 64, .max_sub_pattern_size = 8 };
+pub const max_pattern_len = options.max_pattern_len;
 
 const Token = union(enum) {
     delimiter: void,

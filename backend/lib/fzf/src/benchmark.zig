@@ -3,6 +3,7 @@ const time = std.time;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const Search = @import("fzf.zig").Search;
+const match = @import("fzf.zig").match;
 const testing = std.testing;
 
 fn lines(allocator: Allocator, comptime path: []const u8) !ArrayList([]const u8) {
@@ -31,6 +32,11 @@ pub fn sortByScore(context: void, a: Result, b: Result) bool {
     return a.score > b.score;
 }
 
+pub fn sortByScoreValue(context: void, a: isize, b: isize) bool {
+    _ = context;
+    return a > b;
+}
+
 test "benchmark" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -38,21 +44,25 @@ test "benchmark" {
 
     const texts = try lines(a, "bench_data.txt");
 
-    const search = Search{};
-    const pattern = "drsflhled";
+    // const search = Search{};
+    // make sure there is no results so we get worse-case scenario
+    const pattern = "drsflhledsdf";
 
     var results = ArrayList(Result).init(a);
 
     var timer = try time.Timer.start();
     for (texts.items) |text| {
-        if (try search.search(text, pattern)) |score| {
-            try results.append(.{ .text = text, .score = score.score() });
+        if (match(text, pattern, false)) |score| {
+            // if (try search.search(text, pattern)) |score| {
+            // try results.append(.{ .text = text, .score = score.score() });
+            try results.append(.{ .text = text, .score = score });
         }
     }
     const lapsed = timer.lap();
 
-    var sorted = results.toOwnedSlice();
-    std.sort.sort(Result, sorted, {}, sortByScore);
+    var sorted = try results.toOwnedSlice();
+    // std.sort.heap(comptime T: type, items: []T, context: anytype, comptime lessThanFn: fn(@TypeOf(context), lhs:T, rhs:T)bool)
+    std.sort.heap(Result, sorted, {}, sortByScore);
 
     std.log.warn("\npattern: {s} *** total: {d} ** time: {d}ms\n-----------------", .{ pattern, sorted.len, lapsed / 1_000_000 });
     for (sorted) |result| {
