@@ -63,20 +63,27 @@ const Score = struct {
     }
 };
 
-pub const MatchType = enum {
-    fuzzy,
-    exact,
-    prefix_exact,
-    suffix_exact,
-    inverse_exact,
-    inverse_prefix_exact,
-    inverse_suffix_exact,
+pub const MatchType = enum(u8) {
+    // numbers are ordered in priority. The lower the number the higher the priority.
+    // higher priority matches gives the result faster therefore, gives the final decision faster.
+    inverse_prefix_exact = 0,
+    inverse_suffix_exact = 1,
+
+    prefix_exact = 2,
+    suffix_exact = 3,
+
+    exact = 4,
+    inverse_exact = 5,
+
+    fuzzy = 6,
 };
 
 pub fn match(text: []const u8, pattern: []const u8, is_case_sensitive: bool, match_type: MatchType) ?isize {
     const score = switch (match_type) {
         MatchType.fuzzy => fuzzyMatch(text, pattern, is_case_sensitive),
-        else => null,
+        MatchType.suffix_exact => suffixExact(text, pattern, is_case_sensitive),
+        MatchType.prefix_exact => prefixExact(text, pattern, is_case_sensitive),
+        else => unreachable,
     };
     return if (score) |s| s.score() else null;
 }
@@ -152,46 +159,99 @@ fn fuzzyMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?S
     } else null;
 }
 
+fn suffixExact(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?Score {
+    var score = Score{};
+
+    var i = text.len;
+    var j = pattern.len;
+    while (i > 0 and j > 0) : (i -= 1) {
+        const ti = if (is_case_sensitive) text[i - 1] else std.ascii.toLower(text[i - 1]);
+        const pj = if (is_case_sensitive) pattern[j - 1] else std.ascii.toLower(pattern[j - 1]);
+        if (ti == pj) {
+            score.copy();
+            j -= 1;
+        } else {
+            break;
+        }
+    }
+    return if (j == 0) return score else null;
+}
+
+fn prefixExact(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?Score {
+    var score = Score{};
+
+    var i:usize = 0;
+    var j:usize = 0;
+    while (i < text.len and j < pattern.len) : (i += 1) {
+        const ti = if (is_case_sensitive) text[i] else std.ascii.toLower(text[i]);
+        const pj = if (is_case_sensitive) pattern[j] else std.ascii.toLower(pattern[j]);
+        if (ti == pj) {
+            score.copy();
+            j += 1;
+        } else {
+            break;
+        }
+    }
+    return if (j == pattern.len) return score else null;
+}
+
+test "match" {
+    const cs = true; // case-sensitive
+    const ci = false; // case-insensitive
+    const MT = MatchType;
+    inline for (@typeInfo(MatchType).Enum.fields) |field| {
+        const match_type: MatchType = @enumFromInt(field.value);
+
+        // TODO: remove continue cases from below once implementation is done
+        switch (match_type) {
+            MT.inverse_exact, MT.inverse_prefix_exact, MT.inverse_suffix_exact, MT.exact => {
+                continue;
+            },
+            else => {},
+        }
+
+        var r = match("", "", ci, match_type);
+        try expect(r != null);
+
+        r = match("", "", cs, match_type);
+        try expect(r != null);
+
+        r = match("a", "", ci, match_type);
+        try expect(r != null);
+        r = match("a", "", cs, match_type);
+        try expect(r != null);
+
+        r = match("", "a", ci, match_type);
+        try expect(r == null);
+        r = match("", "a", cs, match_type);
+        try expect(r == null);
+
+        r = match("a", "a", ci, match_type);
+        try expect(r != null);
+        r = match("a", "a", cs, match_type);
+        try expect(r != null);
+
+        r = match("A", "a", ci, match_type);
+        try expect(r != null);
+        r = match("A", "a", cs, match_type);
+        try expect(r == null);
+
+        r = match("a", "A", ci, match_type);
+        try expect(r != null);
+        r = match("a", "A", cs, match_type);
+        try expect(r == null);
+
+        r = match("b", "a", ci, match_type);
+        try expect(r == null);
+    }
+}
+
 test "fuzzy match" {
     const cs = true; // case-sensitive
     const ci = false; // case-insensitive
     const fuzzy = MatchType.fuzzy;
 
-    var r = match("", "", ci, fuzzy);
-    try expect(r != null);
-
-    r = match("", "", cs, fuzzy);
-    try expect(r != null);
-
-    r = match("a", "", ci, fuzzy);
-    try expect(r != null);
-    r = match("a", "", cs, fuzzy);
-    try expect(r != null);
-
-    r = match("", "a", ci, fuzzy);
-    try expect(r == null);
-    r = match("", "a", cs, fuzzy);
-    try expect(r == null);
-
-    r = match("a", "a", ci, fuzzy);
-    try expect(r != null);
-    r = match("a", "a", cs, fuzzy);
-    try expect(r != null);
-
-    r = match("A", "a", ci, fuzzy);
-    try expect(r != null);
-    r = match("A", "a", cs, fuzzy);
-    try expect(r == null);
-
-    r = match("a", "A", ci, fuzzy);
-    try expect(r != null);
-    r = match("a", "A", cs, fuzzy);
-    try expect(r == null);
-
-    r = match("b", "a", ci, fuzzy);
-    try expect(r == null);
-
-    r = match("xbyaz", "ba", ci, fuzzy);
+    var r = match("xbyaz", "ba", ci, fuzzy);
     try expect(r != null);
     r = match("xByaz", "ba", ci, fuzzy);
     try expect(r != null);
@@ -202,9 +262,40 @@ test "fuzzy match" {
     try expect(r == null);
 }
 
-pub const Search = struct {
-    const Self = @This();
-};
+test "suffix exact" {
+    const cs = true; // case-sensitive
+    const ci = false; // case-insensitive
+    const suffix = MatchType.suffix_exact;
+
+    var r = match("barfoo", "foo", ci, suffix);
+    try expect(r != null);
+
+    r = match("barxoo", "foo", ci, suffix);
+    try expect(r == null);
+
+    r = match("foobar", "foo", ci, suffix);
+    try expect(r == null);
+
+    r = match("barFoo", "foo", cs, suffix);
+    try expect(r == null);
+}
+test "prefix exact" {
+    const cs = true; // case-sensitive
+    const ci = false; // case-insensitive
+    const prefix = MatchType.prefix_exact;
+
+    var r = match("foobar", "foo", ci, prefix);
+    try expect(r != null);
+
+    r = match("foxbar", "foo", ci, prefix);
+    try expect(r == null);
+
+    r = match("barfoo", "foo", ci, prefix);
+    try expect(r == null);
+
+    r = match("Foobar", "foo", cs, prefix);
+    try expect(r == null);
+}
 
 fn in_boundary_set(ch: u8) bool {
     inline for (boundary_set) |b| {
