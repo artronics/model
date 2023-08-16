@@ -64,10 +64,10 @@ const Score = struct {
 };
 
 pub fn match(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?isize {
-    return if (matchScore(text, pattern, is_case_sensitive)) |s| s.score() else null;
+    return if (fuzzyMatch(text, pattern, is_case_sensitive)) |s| s.score() else null;
 }
 
-fn matchScore(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?Score {
+fn fuzzyMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?Score {
     var score = Score{};
     _ = is_case_sensitive;
 
@@ -96,7 +96,6 @@ fn matchScore(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?S
 
         if (ti == pj) {
             score.copy();
-            // copy += 1;
             last_pj = pj;
             straight_acc += 1;
 
@@ -105,26 +104,22 @@ fn matchScore(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?S
                 // We don't want to give negative score if straight len is the same as boundary. i.e. full match
                 if (straight_acc != b.len) {
                     score.boundary();
-                    // boundary += 1;
                 }
             }
 
             j -= 1;
         } else if (last_pj == ti) {
             score.copy();
-            // copy += 1;
         } else {
             delete_acc += 1;
             // commit straight
             score.straight(straight_acc);
-            // straight_total += (@as(isize, 1) << (straight_acc + 1)) - 2;
 
             straight_acc = 0;
         }
 
         if (boundary_slice) |_| {
             score.delete(delete_acc);
-            // delete += delete_acc;
             delete_acc = 0;
         }
     }
@@ -144,7 +139,7 @@ fn matchScore(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?S
     } else null;
 }
 
-test "raw match" {
+test "match" {
     var r = match("", "", false);
     try expect(r != null);
     r = match("a", "", false);
@@ -167,100 +162,7 @@ test "raw match" {
 
 pub const Search = struct {
     const Self = @This();
-
-    pub fn search(self: Self, text: []const u8, pattern: []const u8) !?Score {
-        _ = self;
-        var score = Score{};
-
-        var i = text.len;
-        var j = pattern.len;
-        var last_pj: u8 = undefined;
-
-        var delete_acc: isize = 0;
-        var straight_acc: u5 = 0;
-
-        var boundary: ?[]const u8 = null;
-        var boundary_end: usize = undefined;
-
-        while (i > 0 and j > 0) : (i -= 1) {
-            const ti = text[i - 1];
-            const pj = pattern[j - 1];
-
-            if (is_end_boundary(text, i - 1)) {
-                boundary_end = i;
-            }
-            if (is_start_boundary(text, i - 1)) {
-                boundary = text[i - 1 .. boundary_end];
-            } else {
-                boundary = null;
-            }
-
-            if (ti == pj) {
-                score.copy();
-                last_pj = pj;
-                straight_acc += 1;
-
-                if (boundary) |b| {
-                    delete_acc = 0;
-                    // We don't want to give negative score if straight len is the same as boundary. i.e. full match
-                    if (straight_acc != b.len) {
-                        score.boundary();
-                    }
-                }
-
-                j -= 1;
-            } else if (last_pj == ti) {
-                score.copy();
-            } else {
-                delete_acc += 1;
-                // commit straight
-                score.straight(straight_acc);
-                straight_acc = 0;
-            }
-
-            if (boundary) |_| {
-                score.delete(delete_acc);
-                delete_acc = 0;
-            }
-        }
-
-        return if (j == 0) {
-            // commit what is left + kill
-            score.straight(straight_acc);
-            score.delete(delete_acc);
-            // calculate kill
-            while (i > 0) : (i -= 1) {
-                var ti = text[i - 1];
-                if (in_path_sep_set(ti)) break else score.kill(1);
-            }
-
-            return score;
-        } else null;
-    }
 };
-
-test "match" {
-    var s = Search{};
-
-    var r = try s.search("", "");
-    try expect(r != null);
-    r = try s.search("a", "");
-    try expect(r != null);
-    r = try s.search("", "a");
-    try expect(r == null);
-
-    r = try s.search("a", "a");
-    try expect(r != null);
-
-    r = try s.search("b", "a");
-    try expect(r == null);
-
-    r = try s.search("xbyaz", "ba");
-    try expect(r != null);
-
-    r = try s.search("xbyaz", "ab");
-    try expect(r == null);
-}
 
 fn in_boundary_set(ch: u8) bool {
     inline for (boundary_set) |b| {
@@ -339,77 +241,75 @@ test "score" {
     const a = arena.allocator();
     _ = a;
 
-    var s = Search{};
-
     { // Copy
-        var r = try s.search("axy", "a");
+        var r = fuzzyMatch("axy", "a", false);
         try expect(r.?._copy == 1);
-        r = try s.search("xya", "a");
+        r = fuzzyMatch("xya", "a", false);
         try expect(r.?._copy == 1);
 
-        r = try s.search("cbbaa", "cba");
+        r = fuzzyMatch("cbbaa", "cba", false);
         try expect(r.?._copy == 5);
         // Last pj only counts once because search is terminated when j = 0
-        r = try s.search("bbaa", "ba");
+        r = fuzzyMatch("bbaa", "ba", false);
         try expect(r.?._copy == 3);
 
-        r = try s.search("baxyax", "ba");
+        r = fuzzyMatch("baxyax", "ba", false);
         try expect(r.?._copy == 3);
     }
     { // Straight
         const qs = Score.qs;
 
-        var r = try s.search("a", "a");
+        var r = fuzzyMatch("a", "a", false);
         try expect(r.?._straight_acc == qs(1));
 
-        r = try s.search("?abc?", "abc");
+        r = fuzzyMatch("?abc?", "abc", false);
         try expect(r.?._straight_acc == qs(3));
 
-        r = try s.search("?abbbccc?", "abc");
+        r = fuzzyMatch("?abbbccc?", "abc", false);
         try expect(r.?._straight_acc == qs(3));
 
-        r = try s.search("?ab?cde?", "abcde");
+        r = fuzzyMatch("?ab?cde?", "abcde", false);
         try expect(r.?._straight_acc == qs(2) + qs(3));
 
-        r = try s.search("?ab_cde?", "abcde");
+        r = fuzzyMatch("?ab_cde?", "abcde", false);
         try expect(r.?._straight_acc == qs(2) + qs(3));
     }
     { // Delete
-        var r = try s.search("?axx", "a");
+        var r = fuzzyMatch("?axx", "a", false);
         try expect(r.?._delete == 2);
 
-        r = try s.search("?bxxaxxx", "ba");
+        r = fuzzyMatch("?bxxaxxx", "ba", false);
         try expect(r.?._delete == 5);
     }
     { // Boundary aka Chunk
-        var r = try s.search("_axx", "a");
+        var r = fuzzyMatch("_axx", "a", false);
         try expect(r.?._delete == 0);
         try expect(r.?._boundary == 1);
 
-        r = try s.search("?_a_b_c", "abc");
+        r = fuzzyMatch("?_a_b_c", "abc", false);
         try expect(r.?._delete == 0);
         try expect(r.?._boundary == 0);
 
-        r = try s.search("_axx_foo", "afoo");
+        r = fuzzyMatch("_axx_foo", "afoo", false);
         try expect(r.?._delete == 0);
         try expect(r.?._boundary == 1);
 
-        r = try s.search("_axx_fff", "af");
+        r = fuzzyMatch("_axx_fff", "af", false);
         try expect(r.?._delete == 0);
         try expect(r.?._boundary == 1);
 
-        r = try s.search("_?ax_xbx", "ab");
+        r = fuzzyMatch("_?ax_xbx", "ab", false);
         try expect(r.?._delete == 4);
         try expect(r.?._boundary == 0);
     }
     { // Kill
-        var r = try s.search("a", "a");
+        var r = fuzzyMatch("a", "a", false);
         try expect(r.?._kill == 0);
 
-        r = try s.search("xxa???", "a");
+        r = fuzzyMatch("xxa???", "a", false);
         try expect(r.?._kill == 2);
 
-        r = try s.search("??/xxa???", "a");
+        r = fuzzyMatch("??/xxa???", "a", false);
         try expect(r.?._kill == 2);
     }
 }

@@ -44,28 +44,27 @@ test "benchmark" {
 
     const texts = try lines(a, "bench_data.txt");
 
-    // const search = Search{};
     // make sure there is no results so we get worse-case scenario
-    const pattern = "drsflhledsdf";
+    const pattern = "foobarbaz";
 
     var results = ArrayList(Result).init(a);
 
     var timer = try time.Timer.start();
     for (texts.items) |text| {
         if (match(text, pattern, false)) |score| {
-            // if (try search.search(text, pattern)) |score| {
-            // try results.append(.{ .text = text, .score = score.score() });
             try results.append(.{ .text = text, .score = score });
         }
     }
     const lapsed = timer.lap();
 
     var sorted = try results.toOwnedSlice();
-    // std.sort.heap(comptime T: type, items: []T, context: anytype, comptime lessThanFn: fn(@TypeOf(context), lhs:T, rhs:T)bool)
     std.sort.heap(Result, sorted, {}, sortByScore);
 
     std.log.warn("\npattern: {s} *** total: {d} ** time: {d}ms\n-----------------", .{ pattern, sorted.len, lapsed / 1_000_000 });
-    for (sorted) |result| {
-        std.log.warn("[{d:4}] {s}", .{ result.score, result.text });
+
+    if (sorted.len > 0) {
+        for (0..@min(10, sorted.len - 1)) |i| {
+            std.log.warn("[{d:4}] {s}", .{ sorted[i].score, sorted[i].text });
+        }
     }
 }
