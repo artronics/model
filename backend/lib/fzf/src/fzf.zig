@@ -63,8 +63,22 @@ const Score = struct {
     }
 };
 
-pub fn match(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?isize {
-    return if (fuzzyMatch(text, pattern, is_case_sensitive)) |s| s.score() else null;
+pub const MatchType = enum {
+    fuzzy,
+    exact,
+    prefix_exact,
+    suffix_exact,
+    inverse_exact,
+    inverse_prefix_exact,
+    inverse_suffix_exact,
+};
+
+pub fn match(text: []const u8, pattern: []const u8, is_case_sensitive: bool, match_type: MatchType) ?isize {
+    const score = switch (match_type) {
+        MatchType.fuzzy => fuzzyMatch(text, pattern, is_case_sensitive),
+        else => null,
+    };
+    return if (score) |s| s.score() else null;
 }
 
 fn fuzzyMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?Score {
@@ -138,52 +152,53 @@ fn fuzzyMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?S
     } else null;
 }
 
-test "match" {
+test "fuzzy match" {
     const cs = true; // case-sensitive
     const ci = false; // case-insensitive
+    const fuzzy = MatchType.fuzzy;
 
-    var r = match("", "", ci);
+    var r = match("", "", ci, fuzzy);
     try expect(r != null);
 
-    r = match("", "", cs);
+    r = match("", "", cs, fuzzy);
     try expect(r != null);
 
-    r = match("a", "", ci);
+    r = match("a", "", ci, fuzzy);
     try expect(r != null);
-    r = match("a", "", cs);
+    r = match("a", "", cs, fuzzy);
     try expect(r != null);
 
-    r = match("", "a", ci);
+    r = match("", "a", ci, fuzzy);
     try expect(r == null);
-    r = match("", "a", cs);
-    try expect(r == null);
-
-    r = match("a", "a", ci);
-    try expect(r != null);
-    r = match("a", "a", cs);
-    try expect(r != null);
-
-    r = match("A", "a", ci);
-    try expect(r != null);
-    r = match("A", "a", cs);
+    r = match("", "a", cs, fuzzy);
     try expect(r == null);
 
-    r = match("a", "A", ci);
+    r = match("a", "a", ci, fuzzy);
     try expect(r != null);
-    r = match("a", "A", cs);
+    r = match("a", "a", cs, fuzzy);
+    try expect(r != null);
+
+    r = match("A", "a", ci, fuzzy);
+    try expect(r != null);
+    r = match("A", "a", cs, fuzzy);
     try expect(r == null);
 
-    r = match("b", "a", ci);
+    r = match("a", "A", ci, fuzzy);
+    try expect(r != null);
+    r = match("a", "A", cs, fuzzy);
     try expect(r == null);
 
-    r = match("xbyaz", "ba", ci);
-    try expect(r != null);
-    r = match("xByaz", "ba", ci);
-    try expect(r != null);
-    r = match("xByaz", "ba", cs);
+    r = match("b", "a", ci, fuzzy);
     try expect(r == null);
 
-    r = match("xbyaz", "ab", ci);
+    r = match("xbyaz", "ba", ci, fuzzy);
+    try expect(r != null);
+    r = match("xByaz", "ba", ci, fuzzy);
+    try expect(r != null);
+    r = match("xByaz", "ba", cs, fuzzy);
+    try expect(r == null);
+
+    r = match("xbyaz", "ab", ci, fuzzy);
     try expect(r == null);
 }
 
@@ -270,7 +285,6 @@ test "score" {
 
     const cs = true; // case-sensitive
     const ci = false; // case-insensitive
-
 
     { // Copy
         var r = fuzzyMatch("axy", "a", ci);
