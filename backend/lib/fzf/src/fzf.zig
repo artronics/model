@@ -69,7 +69,6 @@ pub fn match(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?is
 
 fn fuzzyMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?Score {
     var score = Score{};
-    _ = is_case_sensitive;
 
     var i = text.len;
     var j = pattern.len;
@@ -82,8 +81,8 @@ fn fuzzyMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?S
     var boundary_end: usize = undefined;
 
     while (i > 0 and j > 0) : (i -= 1) {
-        const ti = text[i - 1];
-        const pj = pattern[j - 1];
+        const ti = if (is_case_sensitive) text[i - 1] else std.ascii.toLower(text[i - 1]);
+        const pj = if (is_case_sensitive) pattern[j - 1] else std.ascii.toLower(pattern[j - 1]);
 
         if (is_end_boundary(text, i - 1)) {
             boundary_end = i;
@@ -140,23 +139,51 @@ fn fuzzyMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?S
 }
 
 test "match" {
-    var r = match("", "", false);
+    const cs = true; // case-sensitive
+    const ci = false; // case-insensitive
+
+    var r = match("", "", ci);
     try expect(r != null);
-    r = match("a", "", false);
+
+    r = match("", "", cs);
     try expect(r != null);
-    r = match("", "a", false);
+
+    r = match("a", "", ci);
+    try expect(r != null);
+    r = match("a", "", cs);
+    try expect(r != null);
+
+    r = match("", "a", ci);
+    try expect(r == null);
+    r = match("", "a", cs);
     try expect(r == null);
 
-    r = match("a", "a", false);
+    r = match("a", "a", ci);
+    try expect(r != null);
+    r = match("a", "a", cs);
     try expect(r != null);
 
-    r = match("b", "a", false);
+    r = match("A", "a", ci);
+    try expect(r != null);
+    r = match("A", "a", cs);
     try expect(r == null);
 
-    r = match("xbyaz", "ba", false);
+    r = match("a", "A", ci);
     try expect(r != null);
+    r = match("a", "A", cs);
+    try expect(r == null);
 
-    r = match("xbyaz", "ab", false);
+    r = match("b", "a", ci);
+    try expect(r == null);
+
+    r = match("xbyaz", "ba", ci);
+    try expect(r != null);
+    r = match("xByaz", "ba", ci);
+    try expect(r != null);
+    r = match("xByaz", "ba", cs);
+    try expect(r == null);
+
+    r = match("xbyaz", "ab", ci);
     try expect(r == null);
 }
 
@@ -241,75 +268,84 @@ test "score" {
     const a = arena.allocator();
     _ = a;
 
+    const cs = true; // case-sensitive
+    const ci = false; // case-insensitive
+
+
     { // Copy
-        var r = fuzzyMatch("axy", "a", false);
+        var r = fuzzyMatch("axy", "a", ci);
         try expect(r.?._copy == 1);
-        r = fuzzyMatch("xya", "a", false);
+        r = fuzzyMatch("xya", "a", ci);
         try expect(r.?._copy == 1);
 
-        r = fuzzyMatch("cbbaa", "cba", false);
+        r = fuzzyMatch("cbbaa", "cba", ci);
         try expect(r.?._copy == 5);
+        // Last pj respect case-sensitivity
+        r = fuzzyMatch("CBBAA", "cba", ci);
+        try expect(r.?._copy == 5);
+        r = fuzzyMatch("cbBaA", "cba", cs);
+        try expect(r.?._copy == 3);
         // Last pj only counts once because search is terminated when j = 0
-        r = fuzzyMatch("bbaa", "ba", false);
+        r = fuzzyMatch("bbaa", "ba", ci);
         try expect(r.?._copy == 3);
 
-        r = fuzzyMatch("baxyax", "ba", false);
+        r = fuzzyMatch("baxyax", "ba", ci);
         try expect(r.?._copy == 3);
     }
     { // Straight
         const qs = Score.qs;
 
-        var r = fuzzyMatch("a", "a", false);
+        var r = fuzzyMatch("a", "a", ci);
         try expect(r.?._straight_acc == qs(1));
 
-        r = fuzzyMatch("?abc?", "abc", false);
+        r = fuzzyMatch("?abc?", "abc", ci);
         try expect(r.?._straight_acc == qs(3));
 
-        r = fuzzyMatch("?abbbccc?", "abc", false);
+        r = fuzzyMatch("?abbbccc?", "abc", ci);
         try expect(r.?._straight_acc == qs(3));
 
-        r = fuzzyMatch("?ab?cde?", "abcde", false);
+        r = fuzzyMatch("?ab?cde?", "abcde", ci);
         try expect(r.?._straight_acc == qs(2) + qs(3));
 
-        r = fuzzyMatch("?ab_cde?", "abcde", false);
+        r = fuzzyMatch("?ab_cde?", "abcde", ci);
         try expect(r.?._straight_acc == qs(2) + qs(3));
     }
     { // Delete
-        var r = fuzzyMatch("?axx", "a", false);
+        var r = fuzzyMatch("?axx", "a", ci);
         try expect(r.?._delete == 2);
 
-        r = fuzzyMatch("?bxxaxxx", "ba", false);
+        r = fuzzyMatch("?bxxaxxx", "ba", ci);
         try expect(r.?._delete == 5);
     }
     { // Boundary aka Chunk
-        var r = fuzzyMatch("_axx", "a", false);
+        var r = fuzzyMatch("_axx", "a", ci);
         try expect(r.?._delete == 0);
         try expect(r.?._boundary == 1);
 
-        r = fuzzyMatch("?_a_b_c", "abc", false);
+        r = fuzzyMatch("?_a_b_c", "abc", ci);
         try expect(r.?._delete == 0);
         try expect(r.?._boundary == 0);
 
-        r = fuzzyMatch("_axx_foo", "afoo", false);
+        r = fuzzyMatch("_axx_foo", "afoo", ci);
         try expect(r.?._delete == 0);
         try expect(r.?._boundary == 1);
 
-        r = fuzzyMatch("_axx_fff", "af", false);
+        r = fuzzyMatch("_axx_fff", "af", ci);
         try expect(r.?._delete == 0);
         try expect(r.?._boundary == 1);
 
-        r = fuzzyMatch("_?ax_xbx", "ab", false);
+        r = fuzzyMatch("_?ax_xbx", "ab", ci);
         try expect(r.?._delete == 4);
         try expect(r.?._boundary == 0);
     }
     { // Kill
-        var r = fuzzyMatch("a", "a", false);
+        var r = fuzzyMatch("a", "a", ci);
         try expect(r.?._kill == 0);
 
-        r = fuzzyMatch("xxa???", "a", false);
+        r = fuzzyMatch("xxa???", "a", ci);
         try expect(r.?._kill == 2);
 
-        r = fuzzyMatch("??/xxa???", "a", false);
+        r = fuzzyMatch("??/xxa???", "a", ci);
         try expect(r.?._kill == 2);
     }
 }
