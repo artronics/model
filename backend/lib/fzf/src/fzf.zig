@@ -317,16 +317,28 @@ test "score" {
         r = fuzzyMatch("?bxxaxxx", "ba", ci);
         try expect(r.?._delete == 5);
     }
-    { // Boundary aka Chunk
-        var r = fuzzyMatch("_axx", "a", ci);
+    { // Boundary
+        var r = fuzzyMatch("_axx", "a", cs);
         try expect(r.?._delete == 0);
         try expect(r.?._boundary == 1);
 
-        r = fuzzyMatch("?_a_b_c", "abc", ci);
+        r = fuzzyMatch("_AXX", "a", ci);
+        try expect(r.?._delete == 0);
+        try expect(r.?._boundary == 1);
+
+        r = fuzzyMatch("?_a_B_c", "abc", ci);
         try expect(r.?._delete == 0);
         try expect(r.?._boundary == 0);
 
         r = fuzzyMatch("_axx_foo", "afoo", ci);
+        try expect(r.?._delete == 0);
+        try expect(r.?._boundary == 1);
+
+        r = fuzzyMatch("AxxFoo", "afoo", ci);
+        try expect(r.?._delete == 0);
+        try expect(r.?._boundary == 1);
+
+        r = fuzzyMatch("AxxFoo", "AFoo", cs);
         try expect(r.?._delete == 0);
         try expect(r.?._boundary == 1);
 
