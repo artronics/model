@@ -160,39 +160,54 @@ fn fuzzyMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?S
 }
 
 fn suffixExact(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?Score {
-    var score = Score{};
-
     var i = text.len;
     var j = pattern.len;
     while (i > 0 and j > 0) : (i -= 1) {
         const ti = if (is_case_sensitive) text[i - 1] else std.ascii.toLower(text[i - 1]);
         const pj = if (is_case_sensitive) pattern[j - 1] else std.ascii.toLower(pattern[j - 1]);
         if (ti == pj) {
-            score.copy();
             j -= 1;
         } else {
             break;
         }
     }
-    return if (j == 0) return score else null;
+
+    return if (j == 0) {
+        var score = Score{};
+        score.copy();
+        std.log.warn("t: {s} | p: {s} i: {d}", .{ text, pattern, i });
+        if (i == 0) {
+            // TODO: full - match
+        } else if (i > 1 and is_start_boundary(text, i)) {
+            score.copy();
+        }
+        return score;
+    } else null;
 }
 
 fn prefixExact(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?Score {
-    var score = Score{};
-
-    var i:usize = 0;
-    var j:usize = 0;
+    var i: usize = 0;
+    var j: usize = 0;
     while (i < text.len and j < pattern.len) : (i += 1) {
         const ti = if (is_case_sensitive) text[i] else std.ascii.toLower(text[i]);
         const pj = if (is_case_sensitive) pattern[j] else std.ascii.toLower(pattern[j]);
         if (ti == pj) {
-            score.copy();
             j += 1;
         } else {
             break;
         }
     }
-    return if (j == pattern.len) return score else null;
+
+    return if (j == pattern.len) {
+        var score = Score{};
+        score.copy();
+        if (i == 0) {
+            // TODO: full - match
+        } else if (i > 0 and is_end_boundary(text, i - 1)) {
+            score.copy();
+        }
+        return score;
+    } else null;
 }
 
 test "match" {
@@ -331,7 +346,7 @@ fn is_end_boundary(text: []const u8, i: usize) bool {
     return (isLower(current) and isUpper(next)) or in_boundary_set(next);
 }
 
-test "is start or end of a boundary?" {
+test "start/end boundary" {
     var s = is_start_boundary("a", 0);
     var e = is_end_boundary("a", 0);
     try expect(s and e);
@@ -368,14 +383,15 @@ test "is start or end of a boundary?" {
     e = is_end_boundary("BaR", 2);
     try expect(s and e);
 }
-test "score" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    _ = a;
 
+test "fuzzy match score" {
     const cs = true; // case-sensitive
     const ci = false; // case-insensitive
+    {
+        var r = fuzzyMatch("foo", "a", ci);
+        // TODO: full-match
+        r = fuzzyMatch("Foo", "foo", cs);
+    }
 
     { // Copy
         var r = fuzzyMatch("axy", "a", ci);
@@ -464,5 +480,39 @@ test "score" {
 
         r = fuzzyMatch("??/xxa???", "a", ci);
         try expect(r.?._kill == 2);
+    }
+}
+
+test "exact match score" {
+    const cs = true; // case-sensitive
+    const ci = false; // case-insensitive
+
+    { // suffix exact
+        var r = suffixExact("foobar", "bar", ci);
+        try expect(r.?.score() == 1);
+
+        r = suffixExact("fooBAR", "BAR", cs);
+        try expect(r.?.score() == 2);
+
+        r = suffixExact("foo_bar", "bar", ci);
+        try expect(r.?.score() == 2);
+
+        r = suffixExact("bar", "bar", ci);
+        // TODO: full-match
+        // try expect(r.?.score() == 1);
+    }
+    { // prefix exact
+        var r = prefixExact("foobar", "foo", ci);
+        try expect(r.?.score() == 1);
+
+        r = prefixExact("FOObar", "FOO", cs);
+        try expect(r.?.score() == 1);
+
+        r = prefixExact("foo_bar", "foo", ci);
+        try expect(r.?.score() == 2);
+
+        r = prefixExact("foo", "foo", ci);
+        // TODO: full-match
+        // try expect(r.?.score() == 2);
     }
 }
