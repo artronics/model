@@ -1,9 +1,8 @@
-import {useEffect, useState} from 'react'
+import {useEffect} from 'react'
 import './App.css'
 import {invoke} from '@tauri-apps/api';
 
 function App() {
-    const [count, setCount] = useState(0)
     useEffect(() => {
         invoke('greet', {name: 'World'})
             // `invoke` returns a Promise
@@ -11,9 +10,10 @@ function App() {
     }, []);
 
     return (
-        <>
-            <div>helloy</div>
-        </>
+        <h1 className="text-3xl m-10 font-bold underline">
+            Hello worlds <i className="fa fa-camera"></i>
+        </h1>
+
     )
 }
 
