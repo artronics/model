@@ -15,11 +15,13 @@ const Score = struct {
     _boundary: isize = 0,
     _kill: isize = 0,
     _straight_acc: isize = 0,
+    _full: bool = false,
 
     const qc: isize = 1;
     const qd: isize = -1;
     const qb: isize = -1;
     const qk: isize = -1;
+    const qf: isize = std.math.maxInt(isize);
     inline fn qs(x: u5) isize {
         // TODO: evaluate the below with a comparison test
         // the score of 1 will be +2 which, combined by copy will contribute +3 in total. How this will impact short strings scoring?
@@ -44,15 +46,18 @@ const Score = struct {
     inline fn straight(self: *Score, x: u5) void {
         self._straight_acc += qs(x);
     }
+    inline fn full(self: *Score) void {
+        self._full = true;
+    }
     pub inline fn score(self: Score) isize {
-        return self._copy * qc +
+        return if (self._full) qf else self._copy * qc +
             self._delete * qd +
             self._boundary * qb +
             self._kill * qk +
             self._straight_acc;
     }
     fn string(self: Score, allocator: Allocator) ![]u8 {
-        return std.fmt.allocPrint(allocator, "\ncopy: {d}\ndelete: {d}\nboundary: {d}\nkill: {d}\nstraight_acc: {d}\nSCORE: {d}\n--------", .{
+        return if (self._full) std.fmt.allocPrint(allocator, "FULL MATCH", .{}) else std.fmt.allocPrint(allocator, "\ncopy: {d}\ndelete: {d}\nboundary: {d}\nkill: {d}\nstraight_acc: {d}\nSCORE: {d}\n--------", .{
             self._copy,
             self._delete,
             self._boundary,
@@ -145,14 +150,18 @@ fn fuzzyMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?S
     }
 
     return if (j == 0) {
-        // commit what is left + kill
-        score.straight(straight_acc);
-        score.delete(delete_acc);
+        if (i == 0) {
+            score.full();
+        } else {
+            // commit what is left + kill
+            score.straight(straight_acc);
+            score.delete(delete_acc);
 
-        // calculate kill
-        while (i > 0) : (i -= 1) {
-            var ti = text[i - 1];
-            if (in_path_sep_set(ti)) break else score.kill(1);
+            // calculate kill
+            while (i > 0) : (i -= 1) {
+                var ti = text[i - 1];
+                if (in_path_sep_set(ti)) break else score.kill(1);
+            }
         }
 
         return score;
@@ -175,9 +184,8 @@ fn suffixExact(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?
     return if (j == 0) {
         var score = Score{};
         score.copy();
-        std.log.warn("t: {s} | p: {s} i: {d}", .{ text, pattern, i });
         if (i == 0) {
-            // TODO: full - match
+            score.full();
         } else if (i > 1 and is_start_boundary(text, i)) {
             score.copy();
         }
@@ -201,8 +209,8 @@ fn prefixExact(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?
     return if (j == pattern.len) {
         var score = Score{};
         score.copy();
-        if (i == 0) {
-            // TODO: full - match
+        if (i == text.len) {
+            score.full();
         } else if (i > 0 and is_end_boundary(text, i - 1)) {
             score.copy();
         }
@@ -384,15 +392,34 @@ test "start/end boundary" {
     try expect(s and e);
 }
 
+test "full match score" {
+    const MT = MatchType;
+    inline for (@typeInfo(MatchType).Enum.fields) |field| {
+        const match_type: MatchType = @enumFromInt(field.value);
+
+        // TODO: remove continue cases from below once implementation is done
+        switch (match_type) {
+            MT.inverse_exact, MT.inverse_prefix_exact, MT.inverse_suffix_exact, MT.exact => {
+                continue;
+            },
+            else => {},
+        }
+        const cs = true; // case-sensitive
+        const ci = false; // case-insensitive
+
+        const exp_score = Score.qf;
+
+        var score = match("foo", "foo", cs, match_type).?;
+        try expect(exp_score == score);
+
+         score = match("foo", "FOO", ci, match_type).?;
+        try expect(exp_score == score);
+    }
+}
+
 test "fuzzy match score" {
     const cs = true; // case-sensitive
     const ci = false; // case-insensitive
-    {
-        var r = fuzzyMatch("foo", "a", ci);
-        // TODO: full-match
-        r = fuzzyMatch("Foo", "foo", cs);
-    }
-
     { // Copy
         var r = fuzzyMatch("axy", "a", ci);
         try expect(r.?._copy == 1);
@@ -416,7 +443,7 @@ test "fuzzy match score" {
     { // Straight
         const qs = Score.qs;
 
-        var r = fuzzyMatch("a", "a", ci);
+        var r = fuzzyMatch("_a", "a", ci);
         try expect(r.?._straight_acc == qs(1));
 
         r = fuzzyMatch("?abc?", "abc", ci);
@@ -498,8 +525,6 @@ test "exact match score" {
         try expect(r.?.score() == 2);
 
         r = suffixExact("bar", "bar", ci);
-        // TODO: full-match
-        // try expect(r.?.score() == 1);
     }
     { // prefix exact
         var r = prefixExact("foobar", "foo", ci);
@@ -510,9 +535,5 @@ test "exact match score" {
 
         r = prefixExact("foo_bar", "foo", ci);
         try expect(r.?.score() == 2);
-
-        r = prefixExact("foo", "foo", ci);
-        // TODO: full-match
-        // try expect(r.?.score() == 2);
     }
 }
