@@ -1,6 +1,7 @@
 import {useEffect} from 'react'
 import './App.css'
 import {invoke} from '@tauri-apps/api';
+import SearchPopup from "./components/SearchPopup.tsx";
 
 function App() {
     useEffect(() => {
@@ -10,9 +11,10 @@ function App() {
     }, []);
 
     return (
-        <h1 className="text-3xl m-10 font-bold underline">
-            Hello worlds <i className="fa fa-camera"></i>
-        </h1>
+        <div className="w-screen h-screen">
+            <SearchPopup/>
+
+        </div>
 
     )
 }
