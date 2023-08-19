@@ -24,7 +24,7 @@ interface SearchResult {
 }
 
 function Results(props: { items: SearchResult[] }) {
-    const item = (i: SearchResult) => (<li className="bg-red-100"><i className={`fa fa-${i.icon} pr-2`}/>{i.text}</li>)
+    const item = (i: SearchResult) => (<li><i className={`fa fa-${i.icon} pr-2`}/>{i.text}</li>)
     return (
         <div className="px-4">
             <ol>
