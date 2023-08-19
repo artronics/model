@@ -1,10 +1,10 @@
 function TabBar() {
-    const item = (t: string) => (<li className="inline-block p-2">{t}</li>)
-    const items = [item("Files"), item("Classes")]
+    const item = (t: string, i: number) => (<li key={i} className="inline-block p-2">{t}</li>)
+    const items = ["Files", "Classes"]
 
     return (
         <ol className="border-b-[1px] border-gray-800 px-2 ">
-            {items}
+            {items.map(item)}
         </ol>
     )
 }
@@ -24,7 +24,7 @@ interface SearchResult {
 }
 
 function Results(props: { items: SearchResult[] }) {
-    const item = (i: SearchResult) => (<li><i className={`fa fa-${i.icon} pr-2`}/>{i.text}</li>)
+    const item = (r: SearchResult, i: number) => (<li key={i}><i className={`fa fa-${r.icon} pr-2`}/>{r.text}</li>)
     return (
         <div className="px-4">
             <ol>
