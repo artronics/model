@@ -89,6 +89,7 @@ pub fn match(text: []const u8, pattern: []const u8, is_case_sensitive: bool, mat
         MatchType.suffix_exact => suffixExact(text, pattern, is_case_sensitive),
         MatchType.inverse_suffix_exact => inverseSuffixExact(text, pattern, is_case_sensitive),
         MatchType.prefix_exact => prefixExact(text, pattern, is_case_sensitive),
+        MatchType.inverse_prefix_exact => inversePrefixExact(text, pattern, is_case_sensitive),
         else => unreachable,
     };
     return if (score) |s| s.score() else null;
@@ -96,6 +97,7 @@ pub fn match(text: []const u8, pattern: []const u8, is_case_sensitive: bool, mat
 
 fn fuzzyMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?Score {
     var score = Score{};
+    if (pattern.len == 0) return score; // empty pattern matches everything
 
     var i = text.len;
     var j = pattern.len;
@@ -169,9 +171,9 @@ fn fuzzyMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?S
     } else null;
 }
 fn suffixMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool, is_inverse: bool) ?Score {
+    if (pattern.len == 0) return Score{}; // empty pattern matches everything
     var i = text.len;
     var j = pattern.len;
-    if (j == 0) return Score{}; // empty pattern matches everything
 
     while (i > 0 and j > 0) : (i -= 1) {
         const ti = if (is_case_sensitive) text[i - 1] else std.ascii.toLower(text[i - 1]);
@@ -201,21 +203,21 @@ fn suffixExact(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?
 fn inverseSuffixExact(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?Score {
     return suffixMatch(text, pattern, is_case_sensitive, true);
 }
-
-fn prefixExact(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?Score {
+fn prefixMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool, is_inverse: bool) ?Score {
+    if (pattern.len == 0) return Score{}; // empty pattern matches everything
     var i: usize = 0;
     var j: usize = 0;
     while (i < text.len and j < pattern.len) : (i += 1) {
         const ti = if (is_case_sensitive) text[i] else std.ascii.toLower(text[i]);
         const pj = if (is_case_sensitive) pattern[j] else std.ascii.toLower(pattern[j]);
-        if (ti == pj) {
+        if ((ti == pj and !is_inverse) or (ti == pj and is_inverse)) {
             j += 1;
         } else {
             break;
         }
     }
 
-    return if (j == pattern.len) {
+    return if ((j == pattern.len) != is_inverse) {
         var score = Score{};
         score.copy();
         if (i == text.len) {
@@ -226,7 +228,12 @@ fn prefixExact(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?
         return score;
     } else null;
 }
-
+fn prefixExact(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?Score {
+    return prefixMatch(text, pattern, is_case_sensitive, false);
+}
+fn inversePrefixExact(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?Score {
+    return prefixMatch(text, pattern, is_case_sensitive, true);
+}
 test "match" {
     const cs = true; // case-sensitive
     const ci = false; // case-insensitive
@@ -236,7 +243,7 @@ test "match" {
 
         // TODO: remove continue cases from below once implementation is done
         switch (match_type) {
-            MT.inverse_exact, MT.inverse_prefix_exact, MT.exact => {
+            MT.inverse_exact, MT.exact => {
                 continue;
             },
             else => {},
@@ -254,7 +261,7 @@ test "match" {
         r = match("a", "", cs, match_type);
         try expect(r != null);
 
-        const is_inverse = match_type == MT.inverse_exact or match_type == MT.inverse_suffix_exact or match_type == MT.inverse_suffix_exact;
+        const is_inverse = match_type == MT.inverse_exact or match_type == MT.inverse_suffix_exact or match_type == MT.inverse_prefix_exact;
         // TODO: simplify assertion by either extract inverse to it's own test or use xor
 
         r = match("", "a", ci, match_type);
@@ -327,12 +334,19 @@ test "prefix exact" {
     const cs = true; // case-sensitive
     const ci = false; // case-insensitive
     const prefix = MatchType.prefix_exact;
+    const inverse = MatchType.inverse_prefix_exact;
 
     var r = match("foobar", "foo", ci, prefix);
     try expect(r != null);
+    r = match("foobar", "foo", ci, inverse);
+    try expect(r == null);
 
     r = match("foxbar", "foo", ci, prefix);
     try expect(r == null);
+    r = match("foxbar", "foo", ci, inverse);
+    try expect(r != null);
+    r = match("xoobar", "foo", ci, inverse);
+    try expect(r != null);
 
     r = match("barfoo", "foo", ci, prefix);
     try expect(r == null);
