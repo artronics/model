@@ -1,4 +1,5 @@
 const std = @import("std");
+const benchmark = @import("benchmark/build.zig");
 
 pub const pkg = std.build.Pkg{
     .name = "fzf",
@@ -22,6 +23,19 @@ pub fn build(b: *std.Build) void {
     const m = options.createModule();
     lib.addModule("fzf_options", m);
 
+    // benchmark
+    var bench_exe = benchmark.package(b, optimize, target);
+    bench_exe.linkLibrary(lib);
+    b.installArtifact(bench_exe);
+
+    const run_benchmark = b.addRunArtifact(bench_exe);
+    run_benchmark.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_benchmark.addArgs(args);
+    }
+    const run_bench_step = b.step("benchmark", "Run the example app");
+    run_bench_step.dependOn(&run_benchmark.step);
+
     b.installArtifact(lib);
     const main_tests = b.addTest(.{
         .root_source_file = .{ .path = "src/fzf.zig" },
@@ -32,9 +46,6 @@ pub fn build(b: *std.Build) void {
 
     const run_main_tests = b.addRunArtifact(main_tests);
 
-    // This creates a build step. It will be visible in the `zig build --help` menu,
-    // and can be selected like this: `zig build test`
-    // This will evaluate the `test` step rather than the default, which is "install".
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&run_main_tests.step);
 }

@@ -19,7 +19,8 @@
             "group": {
                 "kind": "test",
             }
-        },{
+        },
+        {
             "label": "run pattern tests",
             "type": "shell",
             "command": "${env:HOME}/.local/bin/zig test -femit-bin=${workspaceFolder}/zig-out/lib/pattern-test ${workspaceFolder}/src/pattern.zig",
@@ -27,7 +28,17 @@
             "group": {
                 "kind": "test",
             }
-        },{
+        },
+        {
+            "label": "run benchmark",
+            "type": "shell",
+            "command": "${env:HOME}/.local/bin/zig build benchmark",
+            "problemMatcher": [],
+            "group": {
+                "kind": "test",
+            }
+        },
+        {
             "label": "run benchmark tests",
             "type": "shell",
             "command": "${env:HOME}/.local/bin/zig test -femit-bin=${workspaceFolder}/zig-out/lib/benchmark-test ${workspaceFolder}/src/benchmark.zig",
