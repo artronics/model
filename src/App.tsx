@@ -2,6 +2,7 @@ import {useEffect} from 'react'
 import './App.css'
 import {invoke} from '@tauri-apps/api';
 import SearchPopup from "./components/SearchPopup.tsx";
+import Editor from "./components/Editor.tsx";
 
 function App() {
     useEffect(() => {
@@ -13,6 +14,7 @@ function App() {
     return (
         <div className="w-screen h-screen">
             <SearchPopup/>
+            <Editor/>
 
         </div>
 

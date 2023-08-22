@@ -14,6 +14,7 @@ fn compile_backend() {
     let zig_out = Command::new(get_zig_path())
         .current_dir("./../backend")
         .arg("build")
+        .arg("-Doptimize=ReleaseSafe")
         .output();
 
     match zig_out {
