@@ -53,6 +53,29 @@ function PopupFooter() {
     )
 }
 
+const searchResults = selector({
+    key: 'search-results',
+    get: ({get}) => {
+        const pattern = get(textState);
+        console.log(pattern)
+        return search(pattern)
+    },
+});
+
+function SearchPopup() {
+    const results = useRecoilValue(searchResults);
+    return (
+        <>
+            <div className="bg-stone-600 w-full rounded-md">
+                <TabBar/>
+                <SearchInput/>
+                <Results items={results}/>
+                <PopupFooter/>
+            </div>
+        </>
+    )
+}
+
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function search(_pattern: string): SearchResult[] {
     // create random entries for testing
@@ -94,29 +117,6 @@ function search(_pattern: string): SearchResult[] {
         r.push(chooseFile())
     }
     return r
-}
-
-const searchResults = selector({
-    key: 'search-results',
-    get: ({get}) => {
-        const pattern = get(textState);
-        console.log(pattern)
-        return search(pattern)
-    },
-});
-
-function SearchPopup() {
-    const results = useRecoilValue(searchResults);
-    return (
-        <>
-            <div className="bg-stone-600 w-full rounded-md">
-                <TabBar/>
-                <SearchInput/>
-                <Results items={results}/>
-                <PopupFooter/>
-            </div>
-        </>
-    )
 }
 
 export default SearchPopup
