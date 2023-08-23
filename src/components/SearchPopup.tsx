@@ -1,4 +1,5 @@
-import React, {useEffect, useState} from "react";
+import React from "react";
+import {atom, selector, useRecoilValue, useSetRecoilState} from "recoil";
 
 function TabBar() {
     const item = (t: string, i: number) => (<li key={i} className="inline-block p-2">{t}</li>)
@@ -11,11 +12,21 @@ function TabBar() {
     )
 }
 
-function SearchInput(props: { patternChanged: (e: React.FormEvent<HTMLInputElement>) => void }) {
+const textState = atom({
+    key: 'search-popup-text',
+    default: '',
+});
+
+function SearchInput() {
+    const setText = useSetRecoilState(textState);
+    const onChange = (event: React.FormEvent<HTMLInputElement>) => {
+        setText(event.currentTarget.value);
+    };
+
     return (
         <div className="flex flex-row p-2">
             <i className="fa fa-search px-2 mt-[2px]"></i>
-            <input onChange={props.patternChanged} className="grow pl-2 bg-stone-600"/>
+            <input onChange={onChange} className="grow pl-2 bg-stone-600"/>
         </div>
     )
 }
@@ -85,20 +96,22 @@ function search(_pattern: string): SearchResult[] {
     return r
 }
 
+const searchResults = selector({
+    key: 'search-results',
+    get: ({get}) => {
+        const pattern = get(textState);
+        console.log(pattern)
+        return search(pattern)
+    },
+});
+
 function SearchPopup() {
-    const [pattern, setPattern] = useState('')
-    const patternChanged = (e: React.FormEvent<HTMLInputElement>) => {
-        setPattern(e.currentTarget.value)
-    }
-    const [results, setResults] = useState<SearchResult[]>([])
-    useEffect(() => {
-        setResults(search(pattern))
-    }, [pattern]);
+    const results = useRecoilValue(searchResults);
     return (
         <>
             <div className="bg-stone-600 w-full rounded-md">
                 <TabBar/>
-                <SearchInput patternChanged={patternChanged}/>
+                <SearchInput/>
                 <Results items={results}/>
                 <PopupFooter/>
             </div>

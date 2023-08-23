@@ -3,6 +3,7 @@ import './App.css'
 import {invoke} from '@tauri-apps/api';
 import SearchPopup from "./components/SearchPopup.tsx";
 import Editor from "./components/Editor.tsx";
+import {RecoilRoot} from "recoil";
 
 function App() {
     useEffect(() => {
@@ -12,11 +13,12 @@ function App() {
     }, []);
 
     return (
-        <div className="w-screen h-screen">
-            <SearchPopup/>
-            <Editor/>
-
-        </div>
+        <RecoilRoot>
+            <div className="w-screen h-screen">
+                <SearchPopup/>
+                <Editor/>
+            </div>
+        </RecoilRoot>
 
     )
 }
