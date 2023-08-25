@@ -1,5 +1,6 @@
-import React from "react";
+import React, {useEffect, useRef} from "react";
 import {atom, selector, useRecoilValue, useSetRecoilState} from "recoil";
+import {emit, listen} from "@tauri-apps/api/event";
 
 function TabBar() {
     const item = (t: string, i: number) => (<li key={i} className="inline-block p-2">{t}</li>)
@@ -62,7 +63,28 @@ const searchResults = selector({
     },
 });
 
+
+// emits the `click` event with the object payload
 function SearchPopup() {
+    const isLoaded = useRef(false);
+    useEffect(() => {
+        const unlisten = listen('click', (event) => {
+            console.log("got event in front end", event)
+
+        })
+
+    }, []);
+    useEffect(() => {
+        if (!isLoaded.current) {
+            emit('click', {
+                message: 'from front end payload',
+            })
+            console.log("search pop up")
+            isLoaded.current = true
+        }
+        return () => {
+        }
+    });
     const results = useRecoilValue(searchResults);
     return (
         <>
