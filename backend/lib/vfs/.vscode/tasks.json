@@ -1,0 +1,24 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build",
+            "type": "shell",
+            "command": "${env:HOME}/.local/bin/zig build",
+            "problemMatcher": [],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            }
+        },
+        {
+            "label": "run vfs tests",
+            "type": "shell",
+            "command": "${env:HOME}/.local/bin/zig test -femit-bin=${workspaceFolder}/zig-out/lib/vfs-test ${workspaceFolder}/src/vfs.zig",
+            "problemMatcher": [],
+            "group": {
+                "kind": "test",
+            }
+        }
+    ]
+}
