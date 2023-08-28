@@ -1,24 +1,29 @@
 const std = @import("std");
 const ArrayList = std.ArrayList;
+const Allocator = std.mem.Allocator;
 const vfs = @import("vfs");
+const time = std.time;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var arena = std.heap.ArenaAllocator.init(gpa.allocator());
-    defer arena.deinit();
-    const a = arena.allocator();
+    const a = gpa.allocator();
+    try run(a, "benchmark/data/zig");
 
-    const f = try std.fs.cwd().realpathAlloc(a, "benchmark");
-    const fs = try vfs.Vfs.init(a, f);
-
-    var string = ArrayList(u8).init(a);
-    try fs.root.print(&string);
-    std.log.warn("result: {s}", .{string.items});
+    std.debug.assert(!gpa.detectLeaks());
 }
 
-test "simple test" {
-    var list = std.ArrayList(i32).init(std.testing.allocator);
-    defer list.deinit(); // try commenting this out and see if zig detects the memory leak!
-    try list.append(42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
+fn run(allocator: Allocator, path: []const u8) !void {
+    const f = try std.fs.cwd().realpathAlloc(allocator, path);
+    defer allocator.free(f);
+    var string = ArrayList(u8).init(allocator);
+    defer string.deinit();
+
+    var timer = try time.Timer.start();
+    const fs = try vfs.Vfs.init(allocator, f);
+    defer fs.deinit();
+    try fs.root.print(&string);
+    const elapsed = timer.lap();
+
+    std.log.warn("result: {s}", .{string.items});
+    std.log.warn("TIME: {d}ms", .{elapsed / 1000_000});
 }
