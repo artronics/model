@@ -11,17 +11,14 @@ const VFile = struct {
     const Kind = fs.File.Kind;
 
     path: []const u8,
-    children: *ArrayList(VFile),
+    children: ArrayList(*VFile),
     parent: ?*VFile,
     kind: Kind,
 
     fn init(allocator: Allocator, path: []const u8, kind: Kind) !VFile {
-        var children = try allocator.create(ArrayList(VFile));
-        children.* = ArrayList(VFile).init(allocator);
-
         return VFile{
             .path = path,
-            .children = children,
+            .children = ArrayList(*VFile).init(allocator),
             .parent = null,
             .kind = kind,
         };
@@ -29,7 +26,7 @@ const VFile = struct {
 
     fn addChild(self: *VFile, node: *VFile) !void {
         node.parent = self;
-        try self.children.append(node.*);
+        try self.children.append(node);
     }
 
     fn print(self: VFile, string: *ArrayList(u8)) !void {
@@ -87,7 +84,7 @@ const Vfs = struct {
     const Self = @This();
 
     arena: ArenaAllocator,
-    root: VFile,
+    root: *VFile,
     path_buf: PathBuffer,
 
     pub fn init(allocator: Allocator, path: []const u8) !Self {
@@ -101,8 +98,9 @@ const Vfs = struct {
         defer walker.deinit();
 
         const root_path = try std.fmt.allocPrint(arenaAlloc, "{s}", .{std.fs.path.basename(path)});
-        var root = try VFile.init(arenaAlloc, root_path, VFile.Kind.directory);
-        try walkDirs(arenaAlloc, &walker, &root);
+        var root = try arenaAlloc.create(VFile);
+        root.* = try VFile.init(arenaAlloc, root_path, VFile.Kind.directory);
+        try walkDirs(arenaAlloc, &walker, root);
 
         return Self{
             .arena = arena,
@@ -114,7 +112,7 @@ const Vfs = struct {
         self.arena.deinit();
     }
     fn walkDirs(allocator: Allocator, walker: *fs.IterableDir.Walker, root: *VFile) !void {
-        var stack = ArrayList(*VFile).init(allocator);
+        var stack = try ArrayList(*VFile).initCapacity(allocator, 32); // stack max len is equal to fs' max depth
         defer stack.deinit();
 
         try stack.append(root);
@@ -230,7 +228,7 @@ test "vfs" {
 
     std.log.warn("{s}", .{string.items});
 
-    try assertFs(&vfs.root);
+    try assertFs(vfs.root);
 }
 
 /// create a simple nested directory structure for testing
