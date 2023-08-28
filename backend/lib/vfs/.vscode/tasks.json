@@ -19,6 +19,15 @@
             "group": {
                 "kind": "test",
             }
-        }
+        },
+        {
+            "label": "run benchmark",
+            "type": "shell",
+            "command": "${env:HOME}/.local/bin/zig build benchmark",
+            "problemMatcher": [],
+            "group": {
+                "kind": "test",
+            }
+        },
     ]
 }

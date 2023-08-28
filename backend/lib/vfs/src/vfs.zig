@@ -7,7 +7,7 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 const testing = std.testing;
 const eq = std.testing.expectEqual;
 
-const VFile = struct {
+pub const VFile = struct {
     const Kind = fs.File.Kind;
 
     path: []const u8,
@@ -29,7 +29,7 @@ const VFile = struct {
         try self.children.append(node);
     }
 
-    fn print(self: VFile, string: *ArrayList(u8)) !void {
+    pub fn print(self: VFile, string: *ArrayList(u8)) !void {
         var parent = self.parent;
         var indent: u8 = 0;
         while (parent != null) : (parent = parent.?.parent) {
@@ -80,7 +80,7 @@ const VFile = struct {
     }
 };
 
-const Vfs = struct {
+pub const Vfs = struct {
     const Self = @This();
 
     arena: ArenaAllocator,
