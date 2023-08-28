@@ -85,7 +85,6 @@ pub const Vfs = struct {
 
     arena: ArenaAllocator,
     root: *VFile,
-    path_buf: PathBuffer,
 
     pub fn init(allocator: Allocator, path: []const u8) !Self {
         var arena = ArenaAllocator.init(allocator);
@@ -105,7 +104,6 @@ pub const Vfs = struct {
         return Self{
             .arena = arena,
             .root = root,
-            .path_buf = try PathBuffer.init(arenaAlloc),
         };
     }
     pub fn deinit(self: Self) void {
@@ -132,62 +130,6 @@ pub const Vfs = struct {
             try stack.append(node);
             try top.addChild(node);
         }
-    }
-
-    /// buffer used for storing paths
-    /// it doesn't store a reference to the allocated memory i.e. it leaks memory. Only use it with ArenaAllocator.
-    // TODO: Probably using an ArrayList with adjusting all pointers' offset in case of realloc is a better choice?
-    const PathBuffer = struct {
-        allocator: Allocator,
-        cur_buf: []u8 = undefined,
-        cur_index: usize = 0,
-
-        const cap: usize = 1024;
-
-        fn init(allocator: Allocator) !PathBuffer {
-            var self = PathBuffer{ .allocator = allocator };
-            self.cur_buf = try allocator.alloc(u8, cap);
-
-            return self;
-        }
-
-        fn appendSlice(ss: *PathBuffer, s: []const u8) ![]const u8 {
-            const left = cap - ss.cur_index;
-            if (s.len > left) {
-                ss.cur_buf = try ss.allocator.alloc(u8, cap);
-                ss.cur_index = 0;
-            }
-
-            const offset = ss.cur_index;
-            var i: usize = 0;
-            while (i < s.len) : ({
-                i += 1;
-                ss.cur_index += 1;
-            }) {
-                ss.cur_buf[ss.cur_index] = s[i];
-            }
-
-            return ss.cur_buf[offset .. offset + s.len];
-        }
-    };
-
-    test "PathBuffer" {
-        var arena = ArenaAllocator.init(testing.allocator);
-        defer arena.deinit();
-
-        var ss = try PathBuffer.init(arena.allocator());
-        const exp_x = "x" ** PathBuffer.cap;
-        const exp_y = "y" ** PathBuffer.cap;
-
-        const sx = try ss.appendSlice(exp_x);
-        const sy = try ss.appendSlice(exp_y);
-        const foo = try ss.appendSlice("foo");
-        const bar = try ss.appendSlice("bar");
-
-        try testing.expectEqualSlices(u8, exp_x, sx);
-        try testing.expectEqualSlices(u8, exp_y, sy);
-        try testing.expectEqualSlices(u8, "foo", foo);
-        try testing.expectEqualSlices(u8, "bar", bar);
     }
 };
 
