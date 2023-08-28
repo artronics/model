@@ -131,25 +131,9 @@ pub const Vfs = struct {
             try stack.append(top);
             try stack.append(node);
             try top.addChild(node);
-
-            // TODO: Below is an unrolled version of above when same level child are added. Does it perform better?
-            //       In most real world scenarios the number of files at the same level will be bigger than the number of directories
-            //
-            // var top = stack.getLast();
-            // if (std.mem.eql(u8, top.path, node_parent)) {
-            //     try top.addChild(node);
-            //     try stack.append(node);
-            // } else {
-            //     top = stack.pop();
-            //     while (!std.mem.eql(u8, top.path, node_parent)) {
-            //         top = stack.pop();
-            //     }
-            //     try stack.append(top);
-            //     try stack.append(node);
-            //     try top.addChild(node);
-            // }
         }
     }
+
     /// buffer used for storing paths
     /// it doesn't store a reference to the allocated memory i.e. it leaks memory. Only use it with ArenaAllocator.
     // TODO: Probably using an ArrayList with adjusting all pointers' offset in case of realloc is a better choice?

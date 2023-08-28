@@ -8,6 +8,7 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const a = gpa.allocator();
     try run(a, "benchmark/data/zig");
+    // try run(a, "/Users/jalal/tmp/linux");
 
     std.debug.assert(!gpa.detectLeaks());
 }
