@@ -175,20 +175,35 @@ pub const Vfs = struct {
             return if (v) |vf| Node.fromVFile(vf.*) else null;
         }
     };
+    /// Unordered iterator. Use this one if you need to visit all nodes otherwise, use `walker`
     pub fn iterator(self: *const Self) Iterator {
         return Iterator{ .vfs = self, .fd_values_it = self.fd_map.valueIterator() };
     }
     pub const Walker = struct {
         allocator: Allocator,
         vfs: *const Self,
+        stack: ArrayList(*VFile),
         pub fn deinit(w: Walker) void {
-            _ = w;
+            w.stack.deinit();
+        }
+
+        pub fn next(w: *Walker) !?Node {
+            if (w.stack.popOrNull()) |top| {
+                const node = Node.fromVFile(top);
+                try w.stack.appendSlice(top.children.items);
+                return node;
+            } else return null;
         }
     };
-    pub fn walker(self: *const Self, allocator: Allocator) Walker {
-        return Walker{ .vfs = self, .allocator = allocator };
+    pub fn walker(self: *const Self, allocator: Allocator) !Walker {
+        var stack = ArrayList(*VFile).init(allocator);
+        try stack.append(self.root);
+        return Walker{
+            .vfs = self,
+            .allocator = allocator,
+            .stack = stack,
+        };
     }
-    
 };
 
 test "vfs" {
@@ -233,8 +248,15 @@ test "Vfs iterator" {
         try expect(test_dir_total_nodes == count);
     }
     {
-        var walker = vfs.walker(a);
+        var walker = try vfs.walker(a);
         defer walker.deinit();
+
+        const root = (try walker.next()).?;
+        try eqSlice(u8, "root", root.path);
+
+        var count: usize = 1;
+        while (try walker.next() != null) : (count += 1) {}
+        try expect(test_dir_total_nodes == count);
     }
 }
 const test_dir_total_nodes = 12;
