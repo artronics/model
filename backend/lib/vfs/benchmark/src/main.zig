@@ -22,7 +22,7 @@ fn run(allocator: Allocator, path: []const u8) !void {
     var timer = try time.Timer.start();
     const fs = try vfs.Vfs.init(allocator, f);
     defer fs.deinit();
-    try fs.root.print(&string);
+    try fs.print(&string);
     const elapsed = timer.lap();
 
     std.log.warn("result: {s}", .{string.items});

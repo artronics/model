@@ -5,11 +5,26 @@ const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 
 const testing = std.testing;
+const expect = testing.expect;
+const eqSlice = testing.expectEqualSlices;
 const eq = std.testing.expectEqual;
 
-pub const VFile = struct {
+const Fd = struct { value: u32 };
+const FdMap = std.AutoHashMap(Fd, *VFile);
+
+fn newFd() Fd {
+    const FdCounter = struct {
+        var count: u32 = 0;
+    };
+    defer FdCounter.count += 1;
+
+    return Fd{ .value = FdCounter.count };
+}
+
+const VFile = struct {
     const Kind = fs.File.Kind;
 
+    fd: Fd,
     path: []const u8,
     children: ArrayList(*VFile),
     parent: ?*VFile,
@@ -17,6 +32,7 @@ pub const VFile = struct {
 
     fn init(allocator: Allocator, path: []const u8, kind: Kind) !VFile {
         return VFile{
+            .fd = newFd(),
             .path = path,
             .children = ArrayList(*VFile).init(allocator),
             .parent = null,
@@ -29,7 +45,7 @@ pub const VFile = struct {
         try self.children.append(node);
     }
 
-    pub fn print(self: VFile, string: *ArrayList(u8)) !void {
+    fn print(self: VFile, string: *ArrayList(u8)) !void {
         var parent = self.parent;
         var indent: u8 = 0;
         while (parent != null) : (parent = parent.?.parent) {
@@ -80,9 +96,20 @@ pub const VFile = struct {
     }
 };
 
+pub const Node = struct {
+    fd: Fd,
+    kind: VFile.Kind,
+    path: []const u8,
+
+    fn fromVFile(vf: *const VFile) Node {
+        return .{ .fd = vf.fd, .path = vf.path, .kind = vf.kind };
+    }
+};
+
 pub const Vfs = struct {
     const Self = @This();
 
+    fd_map: FdMap,
     arena: ArenaAllocator,
     root: *VFile,
 
@@ -90,35 +117,44 @@ pub const Vfs = struct {
         var arena = ArenaAllocator.init(allocator);
         const arenaAlloc = arena.allocator();
 
+        var fd_map = FdMap.init(arenaAlloc);
+
         var d = try fs.openDirAbsolute(path, .{ .access_sub_paths = true, .no_follow = true });
         defer d.close();
         const id = fs.IterableDir{ .dir = d };
-        var walker = try id.walk(arenaAlloc);
-        defer walker.deinit();
+        var fs_walker = try id.walk(arenaAlloc);
+        defer fs_walker.deinit();
 
         const root_path = try std.fmt.allocPrint(arenaAlloc, "{s}", .{std.fs.path.basename(path)});
         var root = try arenaAlloc.create(VFile);
         root.* = try VFile.init(arenaAlloc, root_path, VFile.Kind.directory);
-        try walkDirs(arenaAlloc, &walker, root);
+        try fd_map.put(root.fd, root);
+
+        try walkDirs(arenaAlloc, &fd_map, &fs_walker, root);
 
         return Self{
             .arena = arena,
             .root = root,
+            .fd_map = fd_map,
         };
     }
     pub fn deinit(self: Self) void {
         self.arena.deinit();
     }
-    fn walkDirs(allocator: Allocator, walker: *fs.IterableDir.Walker, root: *VFile) !void {
+    pub fn print(self: Self, string: *ArrayList(u8)) !void {
+        return self.root.print(string);
+    }
+    fn walkDirs(allocator: Allocator, fd_map: *FdMap, fs_walker: *fs.IterableDir.Walker, root: *VFile) !void {
         var stack = try ArrayList(*VFile).initCapacity(allocator, 32); // stack max len is equal to fs' max depth
         defer stack.deinit();
 
         try stack.append(root);
 
-        while (try walker.next()) |next| {
+        while (try fs_walker.next()) |next| {
             var node = try allocator.create(VFile);
             const path = try std.fmt.allocPrint(allocator, "{s}", .{next.path});
             node.* = try VFile.init(allocator, path, next.kind);
+            try fd_map.put(node.fd, node);
 
             const node_parent = fs.path.dirname(node.path) orelse root.path;
 
@@ -131,6 +167,28 @@ pub const Vfs = struct {
             try top.addChild(node);
         }
     }
+    pub const Iterator = struct {
+        vfs: *const Self,
+        fd_values_it: FdMap.ValueIterator,
+        pub fn next(it: *Iterator) ?Node {
+            const v = it.fd_values_it.next();
+            return if (v) |vf| Node.fromVFile(vf.*) else null;
+        }
+    };
+    pub fn iterator(self: *const Self) Iterator {
+        return Iterator{ .vfs = self, .fd_values_it = self.fd_map.valueIterator() };
+    }
+    pub const Walker = struct {
+        allocator: Allocator,
+        vfs: *const Self,
+        pub fn deinit(w: Walker) void {
+            _ = w;
+        }
+    };
+    pub fn walker(self: *const Self, allocator: Allocator) Walker {
+        return Walker{ .vfs = self, .allocator = allocator };
+    }
+    
 };
 
 test "vfs" {
@@ -145,18 +203,41 @@ test "vfs" {
 
     const vfs = try Vfs.init(a, d);
     defer vfs.deinit();
-    std.log.warn("path: {s}", .{vfs.root.path});
 
     var string = try ArrayList(u8).initCapacity(a, 4096);
     defer string.deinit();
     try string.append('\n');
     try vfs.root.print(&string);
 
-    std.log.warn("{s}", .{string.items});
-
-    try assertFs(vfs.root);
+    try expect(vfs.root.children.items.len == 5);
+    try eqSlice(u8, "root", vfs.root.path);
 }
 
+test "Vfs iterator" {
+    const a = testing.allocator;
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+    try makeTestData(tmp_dir);
+
+    var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var d = try tmp_dir.dir.realpath("root", &buf);
+
+    const vfs = try Vfs.init(a, d);
+    defer vfs.deinit();
+
+    {
+        var it = vfs.iterator();
+        var count: usize = 0;
+        while (it.next() != null) : (count += 1) {}
+        try expect(test_dir_total_nodes == count);
+    }
+    {
+        var walker = vfs.walker(a);
+        defer walker.deinit();
+    }
+}
+const test_dir_total_nodes = 12;
 /// create a simple nested directory structure for testing
 /// /root
 ///   /empty
@@ -180,8 +261,4 @@ fn makeTestData(dir: testing.TmpDir) !void {
     _ = try dir.dir.createFile("root/c/c1.txt", .{});
     _ = try dir.dir.createFile("root/c/c2.txt", .{});
     _ = try dir.dir.createFile("root/a/b/c.txt", .{});
-}
-
-fn assertFs(root: *const VFile) !void {
-    try testing.expect(root.children.items.len == 5);
 }
