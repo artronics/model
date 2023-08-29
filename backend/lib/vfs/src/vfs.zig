@@ -106,6 +106,8 @@ pub const Node = struct {
     }
 };
 
+pub const VfsError = error{NodeNotFound};
+
 pub const Vfs = struct {
     const Self = @This();
 
@@ -167,6 +169,24 @@ pub const Vfs = struct {
             try top.addChild(node);
         }
     }
+    pub fn rootNode(self: Self) Node {
+        return Node.fromVFile(self.root);
+    }
+    pub fn children(self: Self, allocator: Allocator, parent: Node) (Allocator.Error || VfsError)![]Node {
+        if (self.fd_map.get(parent.fd)) |p| {
+            const len = p.children.items.len;
+
+            var nodes = try allocator.alloc(Node, len);
+            for (p.children.items, 0..len) |child, i| {
+                nodes[i] = Node.fromVFile(child);
+            }
+
+            return nodes;
+        } else {
+            return VfsError.NodeNotFound;
+        }
+    }
+
     pub const Iterator = struct {
         vfs: *const Self,
         fd_values_it: FdMap.ValueIterator,
@@ -224,8 +244,13 @@ test "vfs" {
     try string.append('\n');
     try vfs.root.print(&string);
 
-    try expect(vfs.root.children.items.len == 5);
-    try eqSlice(u8, "root", vfs.root.path);
+    {
+        try eqSlice(u8, "root", vfs.rootNode().path);
+
+        const root_nodes = try vfs.children(a, vfs.rootNode());
+        defer a.free(root_nodes);
+        try expect(root_nodes.len == 5);
+    }
 }
 
 test "Vfs iterator" {
