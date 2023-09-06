@@ -3,20 +3,14 @@
 
 use tauri::Manager;
 
+use backend::handle_event;
+
+mod backend;
+mod backend_api;
+
 #[tauri::command]
 fn greet(name: &str) -> String {
-    format!("Hello, {}! value is {}", name, my_add(10, 12))
-}
-
-#[link(name = "backend", kind = "static")]
-extern "C" {
-    fn add(a: usize, b: usize) -> usize;
-}
-
-fn my_add(a: usize, b: usize) -> usize {
-    unsafe {
-        return add(a, b);
-    }
+    format!("Hello, {}! value is {}", name, "")
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -33,6 +27,10 @@ fn main() {
                 window.open_devtools();
                 window.close_devtools();
             }
+            let id = window.listen("show-file-picker", |event| {
+                println!("got window event-name with payload {:?}", event.payload());
+                handle_event(event.payload().unwrap_or("no value").into());
+            });
             // listen to the `event-name` (emitted on the `main` window)
             let id = window.listen("click", |event| {
                 println!("got window event-name with payload {:?}", event.payload());

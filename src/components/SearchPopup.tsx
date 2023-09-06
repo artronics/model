@@ -66,24 +66,14 @@ const searchResults = selector({
 
 // emits the `click` event with the object payload
 function SearchPopup() {
-    const isLoaded = useRef(false);
+    const isEmitted = useRef(false);
     useEffect(() => {
-        const unlisten = listen('click', (event) => {
-            console.log("got event in front end", event)
-
-        })
-
-    }, []);
-    useEffect(() => {
-        if (!isLoaded.current) {
-            emit('click', {
-                message: 'from front end payload',
+        if (!isEmitted.current) {
+            emit('show-file-picker', '/Users/jalal/projects/modex/modex').then(() => {
+                console.log("search pop up")
             })
-            console.log("search pop up")
-            isLoaded.current = true
         }
-        return () => {
-        }
+        isEmitted.current = true
     });
     const results = useRecoilValue(searchResults);
     return (
