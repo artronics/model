@@ -251,10 +251,10 @@ test "match" {
 
         var r = match("", "", ci, match_type);
         std.log.warn("mt: {s}", .{@tagName(match_type)});
-        // try expect(r != null);
+        try expect(r != null);
 
         r = match("", "", cs, match_type);
-        // try expect(r != null);
+        try expect(r != null);
 
         r = match("a", "", ci, match_type);
         try expect(r != null);
@@ -468,7 +468,7 @@ test "fuzzy match score" {
         try expect(r.?._copy == 5);
         r = fuzzyMatch("cbBaA", "cba", cs);
         try expect(r.?._copy == 3);
-        // Last pj only counts once because search is terminated when j = 0
+        // Last pj is only counted once because, search is terminated when j = 0
         r = fuzzyMatch("bbaa", "ba", ci);
         try expect(r.?._copy == 3);
 
