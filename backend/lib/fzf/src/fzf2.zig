@@ -13,14 +13,18 @@ const boundary_set = [_]u8{ '_', ' ', '-' } ++ path_separator;
 const Score = struct {
     _copy: isize = 0,
     _delete: isize = 0,
-    _boundary: isize = 0,
+    // negative score for when match is the beg/end of a boundary
+    _boundary_delete: isize = 0,
+    // positive score for when match is the beg/end of a boundary
+    _boundary_match: isize = 0,
     _kill: isize = 0,
     _straight_acc: isize = 0,
     _full: bool = false,
 
     const qc: isize = 1;
     const qd: isize = -1;
-    const qb: isize = -1;
+    const qb_del: isize = -1;
+    const qb_match: isize = 1;
     const qk: isize = -1;
     const qf: isize = std.math.maxInt(isize);
     inline fn qs(x: u5) isize {
@@ -38,8 +42,11 @@ const Score = struct {
     inline fn delete(self: *Score, x: isize) void {
         self._delete += x;
     }
-    inline fn boundary(self: *Score) void {
-        self._boundary += 1;
+    inline fn boundary_delete(self: *Score) void {
+        self._boundary_delete += 1;
+    }
+    inline fn boundary_match(self: *Score) void {
+        self._boundary_match += 1;
     }
     inline fn kill(self: *Score, x: isize) void {
         self._kill += x;
@@ -53,15 +60,17 @@ const Score = struct {
     pub inline fn score(self: Score) isize {
         return if (self._full) qf else self._copy * qc +
             self._delete * qd +
-            self._boundary * qb +
+            self._boundary_delete * qb_del +
+            self._boundary_match * qb_match +
             self._kill * qk +
             self._straight_acc;
     }
     fn string(self: Score, allocator: Allocator) ![]u8 {
-        return if (self._full) std.fmt.allocPrint(allocator, "FULL MATCH", .{}) else std.fmt.allocPrint(allocator, "\ncopy: {d}\ndelete: {d}\nboundary: {d}\nkill: {d}\nstraight_acc: {d}\nSCORE: {d}\n--------", .{
+        return if (self._full) std.fmt.allocPrint(allocator, "FULL MATCH", .{}) else std.fmt.allocPrint(allocator, "\ncopy: {d}\ndelete: {d}\nboundary_del: {d}\nboundary_match: {d}\nkill: {d}\nstraight_acc: {d}\nSCORE: {d}\n--------", .{
             self._copy,
             self._delete,
-            self._boundary,
+            self._boundary_delete,
+            self._boundary_match,
             self._kill,
             self._straight_acc,
             self.score(),
@@ -115,10 +124,12 @@ test "match empty pattern" {
 }
 fn exactMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool, match_type: MatchType) ?Score {
     const MT = MatchType;
-    const inverse = switch (match_type) {
+    // negate determines the inverse match.
+    const negate = switch (match_type) {
         MT.exact, MT.prefix_exact, MT.suffix_exact => false,
         MT.inverse_exact, MT.inverse_prefix_exact, MT.inverse_suffix_exact => true,
     };
+    // reverse determines the direction of match. From end-to-beg (reverse) or vice versa
     const reverse = switch (match_type) {
         MT.inverse_exact, MT.exact, MT.suffix_exact, MT.inverse_suffix_exact => true,
         MT.prefix_exact, MT.inverse_prefix_exact => false,
@@ -127,46 +138,54 @@ fn exactMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool, ma
     var i = if (reverse) text.len else 0;
     var j = if (reverse) pattern.len else 0;
     while ((i > 0 and j > 0 and reverse) or (i < text.len and j < pattern.len and !reverse)) : ({
+        // i = i + if(reverse) -1 else 1 // FIXME: why I can't use this to simplify loop? error: value with comptime-only type 'comptime_int' depends on runtime control flow
         if (reverse) {
             i -= 1;
         } else {
             i += 1;
         }
     }) {
-        const t_ch = text[if (reverse) i - 1 else i];
-        const p_ch = pattern[if (reverse) j - 1 else j];
+        const t_idx = if (reverse) i - 1 else i;
+        const p_idx = if (reverse) j - 1 else j;
+        const t_ch = text[t_idx];
+        const p_ch = pattern[p_idx];
         const ti = if (is_case_sensitive) t_ch else toLower(t_ch);
         const pj = if (is_case_sensitive) p_ch else toLower(p_ch);
 
-        if ((ti == pj and !inverse) or (ti == pj and inverse)) {
+        if ((ti == pj and !negate) or (ti == pj and negate)) {
             if (reverse) {
                 j -= 1;
             } else {
                 j += 1;
             }
         } else if (match_type == MT.exact) {
-            // break;
             j = if (reverse) pattern.len else 0;
         } else {
             break;
         }
     }
 
-    const match_found = (j == if (reverse) 0 else pattern.len) != inverse;
+    const match_found = (j == if (reverse) 0 else pattern.len) != negate;
     return if (match_found) {
         var score = Score{};
-        if (inverse) return score; // inverse doesn't have a baseline score
+        if (negate) return score; // inverse doesn't have a baseline score
 
         if (pattern.len == text.len) {
             score.full();
         } else {
             score.copy(@intCast(pattern.len));
             score.straight(@intCast(@min(pattern.len, max_pattern_len)));
+            if (i == 0 or i == text.len or
+                (reverse and isStartBoundary(text, i)) or
+                (!reverse and isEndBoundary(text, i - 1)))
+            {
+                score.boundary_match();
+            }
         }
         return score;
     } else null;
 }
-test "prefix/suffix inverse/normal exact match" {
+test "exact match" {
     const cs = true; // case-sensitive
     const ci = false; // case-insensitive
     const MT = MatchType;
@@ -183,15 +202,23 @@ test "prefix/suffix inverse/normal exact match" {
         s = exactMatch("fOobar", "fOo", cs, mt);
         try expect(3 == s.?._copy);
         try expect(qs(3) == s.?._straight_acc);
+        try expect(1 == s.?._boundary_match);
 
         s = exactMatch("foo", "foo", ci, mt);
         try expect(full_score == s.?.score());
 
-        s = exactMatch("foobarxar", "bar", cs, mt);
+        s = exactMatch("foo_barxar", "bar", cs, mt);
         try expect(3 == s.?._copy);
         try expect(qs(3) == s.?._straight_acc);
+        try expect(1 == s.?._boundary_match);
+
+        s = exactMatch("fooBar", "Bar", cs, mt);
+        try expect(1 == s.?._boundary_match);
 
         s = exactMatch("foobar", "Bar", cs, mt);
+        try expect(s == null);
+
+        s = exactMatch("foo", "foobar", cs, mt);
         try expect(s == null);
     }
     { // suffix_exact
@@ -200,12 +227,19 @@ test "prefix/suffix inverse/normal exact match" {
         try expect(3 == s.?._copy);
         try expect(qs(3) == s.?._straight_acc);
 
+        s = exactMatch("fooBar", "Bar", cs, mt);
+        try expect(3 == s.?._copy);
+        try expect(qs(3) == s.?._straight_acc);
+        try expect(1 == s.?._boundary_match);
+
         s = exactMatch("bar", "bar", ci, mt);
         try expect(full_score == s.?.score());
 
         s = exactMatch("foobAr", "bAr", cs, mt);
         try expect(3 == s.?._copy);
         try expect(qs(3) == s.?._straight_acc);
+        try expect(0 == s.?._boundary_match);
+
         s = exactMatch("foobAr", "bar", cs, mt);
         try expect(s == null);
         s = exactMatch("foobar", "bAr", cs, mt);
@@ -215,6 +249,9 @@ test "prefix/suffix inverse/normal exact match" {
         try expect(s == null);
         s = exactMatch("foobar", "bax", ci, mt);
         try expect(s == null);
+
+        s = exactMatch("foo", "foobar", cs, mt);
+        try expect(s == null);
     }
     { // prefix_exact
         const mt = MT.prefix_exact;
@@ -222,12 +259,19 @@ test "prefix/suffix inverse/normal exact match" {
         try expect(3 == s.?._copy);
         try expect(qs(3) == s.?._straight_acc);
 
+        s = exactMatch("fooBar", "foo", ci, mt);
+        try expect(3 == s.?._copy);
+        try expect(qs(3) == s.?._straight_acc);
+        try expect(1 == s.?._boundary_match);
+
         s = exactMatch("bar", "bar", ci, mt);
         try expect(full_score == s.?.score());
 
         s = exactMatch("fOobar", "fOo", cs, mt);
         try expect(3 == s.?._copy);
         try expect(qs(3) == s.?._straight_acc);
+        try expect(0 == s.?._boundary_match);
+
         s = exactMatch("fOobar", "foo", cs, mt);
         try expect(s == null);
         s = exactMatch("foobar", "fOo", cs, mt);
@@ -236,6 +280,9 @@ test "prefix/suffix inverse/normal exact match" {
         s = exactMatch("foobar", "fox", ci, mt);
         try expect(s == null);
         s = exactMatch("foobar", "xoo", ci, mt);
+        try expect(s == null);
+
+        s = exactMatch("foo", "foobar", cs, mt);
         try expect(s == null);
     }
     { // inverse_prefix_exact
@@ -252,6 +299,9 @@ test "prefix/suffix inverse/normal exact match" {
         try expect(s == null);
         s = exactMatch("Foobar", "foo", cs, mt);
         try expect(s.?.score() == empty_score);
+
+        s = exactMatch("foo", "foobar", cs, mt);
+        try expect(s.?.score() == empty_score);
     }
     { // inverse_suffix_exact
         const mt = MT.inverse_suffix_exact;
@@ -266,6 +316,9 @@ test "prefix/suffix inverse/normal exact match" {
         s = exactMatch("foobaR", "baR", cs, mt);
         try expect(s == null);
         s = exactMatch("fooBar", "bar", cs, mt);
+        try expect(s.?.score() == empty_score);
+
+        s = exactMatch("foo", "foobar", cs, mt);
         try expect(s.?.score() == empty_score);
     }
 }
@@ -306,7 +359,7 @@ fn fuzzyMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?S
                 delete_acc = 0;
                 // We don't want to give negative score if straight len is the same as boundary. i.e. full match
                 if (straight_acc != b.len) {
-                    score.boundary();
+                    score.boundary_delete();
                 }
             }
 

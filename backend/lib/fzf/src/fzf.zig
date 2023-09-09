@@ -129,7 +129,7 @@ fn fuzzyMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?S
 
             if (boundary_slice) |b| {
                 delete_acc = 0;
-                // We don't want to give negative score if straight len is the same as boundary. i.e. full match
+                // We don't want to give negative score if straight len is the same as boundary. i.e. full match for this chunk
                 if (straight_acc != b.len) {
                     score.boundary();
                 }
