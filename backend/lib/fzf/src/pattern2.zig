@@ -107,15 +107,28 @@ pub const Pattern = struct {
             }
         }
         fn matchText(s: *Scanner) !void {
-            const start = s.current;
-            while (!s.isAtEnd() and s.peek() != delimiter and
-                !(s.peek() == '$' and (s.peekNext() == delimiter or s.peekNext() == 0)))
-            {
-                _ = s.advance();
-            }
-            try s.tokens.append(.{ .tag = TokenTag.text, .lexeme = s.source[start..s.current] });
+            const start = s.buf_i;
+            var has_suffix = false;
 
-            if (s.match('$')) {
+            // break until under:  "foo", "foo ", "foo$", "foo$ " and account for escape: "foo\$", "foo\ bar" etc
+            while (!s.isAtEnd()) {
+                if (s.peek() == '\\' and (s.peekNext() == ' ' or s.peekNext() == '$')) {
+                    _ = s.advance();
+                    s.buf[s.buf_i] = s.advance();
+                    s.buf_i += 1;
+                } else if (s.peek() == '$' and (s.peekNext() == delimiter or s.peekNext() == 0)) {
+                    _ = s.advance();
+                    has_suffix = true;
+                    break;
+                } else if (s.peek() == delimiter) {
+                    break;
+                } else {
+                    s.buf[s.buf_i] = s.advance();
+                    s.buf_i += 1;
+                }
+            }
+            try s.tokens.append(.{ .tag = TokenTag.text, .lexeme = s.buf[start..s.buf_i] });
+            if (has_suffix) {
                 try s.tokens.append(.{ .tag = TokenTag.suffix });
             }
         }
@@ -151,6 +164,27 @@ pub const Pattern = struct {
             var buf = try a.alloc(u8, 1024);
             defer a.free(buf);
             {
+                const pattern = "";
+                var s = Scanner.init(a, pattern, buf);
+                defer s.deinit();
+
+                const tokens = try s.scan();
+                defer a.free(tokens);
+
+                try expect(tokens.len == 0);
+            }
+            {
+                const pattern = "foobar";
+                var s = Scanner.init(a, pattern, buf);
+                defer s.deinit();
+
+                const tokens = try s.scan();
+                defer a.free(tokens);
+
+                try expect(tokens[0].tag == TokenTag.text);
+                try sliceEq(u8, "foobar", tokens[0].lexeme.?);
+            }
+            {
                 const pattern = "foo bar | baz";
                 var s = Scanner.init(a, pattern, buf);
                 defer s.deinit();
@@ -160,6 +194,16 @@ pub const Pattern = struct {
 
                 try expect(tokens[0].tag == TokenTag.text);
                 try sliceEq(u8, "foo", tokens[0].lexeme.?);
+
+                try expect(tokens[1].tag == TokenTag.and_op);
+
+                try expect(tokens[2].tag == TokenTag.text);
+                try sliceEq(u8, "bar", tokens[2].lexeme.?);
+
+                try expect(tokens[3].tag == TokenTag.or_op);
+
+                try expect(tokens[4].tag == TokenTag.text);
+                try sliceEq(u8, "baz", tokens[4].lexeme.?);
             }
             {
                 const pattern = "!'foo !^bar$ !bax | ^baz$";
@@ -187,12 +231,12 @@ pub const Pattern = struct {
                 try expect(tokens[14].tag == TokenTag.suffix);
             }
         }
-        test "Scanner scape" {
+        test "Scanner escape" {
             const a = testing.allocator;
             var buf = try a.alloc(u8, 1024);
             defer a.free(buf);
 
-            const pattern = "\\!foo\\ bar";
+            const pattern = "\\!foo\\ bar\\$\\ ^bax\\ |\\ baz";
             var s = Scanner.init(a, pattern, buf);
             defer s.deinit();
 
@@ -200,7 +244,7 @@ pub const Pattern = struct {
             defer a.free(tokens);
 
             try expect(tokens[0].tag == TokenTag.text);
-            try sliceEq(u8, "!foo bar", tokens[0].lexeme.?);
+            try sliceEq(u8, "!foo bar$ ^bax | baz", tokens[0].lexeme.?);
         }
     };
 };
