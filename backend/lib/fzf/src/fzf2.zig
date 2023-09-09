@@ -90,28 +90,31 @@ pub const MatchType = enum(u8) {
     exact = 4,
     inverse_exact = 5,
 
-    // fuzzy = 6,
+    fuzzy = 6,
 };
 pub fn match(text: []const u8, pattern: []const u8, is_case_sensitive: bool, match_type: MatchType) ?isize {
     if (pattern.len == 0) return (Score{}).score(); // empty pattern matches everything
 
     const MT = MatchType;
-    const score = switch (match_type) {
+    const is_fuzzy = switch (match_type) {
         MT.exact,
         MT.prefix_exact,
         MT.suffix_exact,
         MT.inverse_exact,
         MT.inverse_prefix_exact,
         MT.inverse_suffix_exact,
-        => exactMatch(text, pattern, is_case_sensitive, match_type),
+        => false,
+        MT.fuzzy => true,
     };
 
+    const score = if (is_fuzzy) fuzzyMatch(text, pattern, is_case_sensitive) else exactMatch(text, pattern, is_case_sensitive, match_type);
     return if (score) |value| value.score() else null;
 }
-test "match empty pattern" {
+test "empty pattern and full match" {
     const cs = true; // case-sensitive
     const ci = false; // case-insensitive
     const MT = MatchType;
+    const full_score = (Score{ ._full = true }).score();
     inline for (@typeInfo(MT).Enum.fields) |field| {
         const match_type: MT = @enumFromInt(field.value);
         const empty_score = (Score{}).score();
@@ -120,6 +123,14 @@ test "match empty pattern" {
         try expect(s.? == empty_score);
         s = match("foo", "", cs, match_type);
         try expect(s.? == empty_score);
+
+        if (match_type == MT.inverse_exact or match_type == MT.inverse_prefix_exact or match_type == MT.inverse_suffix_exact) continue;
+        s = match("foo", "foo", ci, match_type);
+        try expect(s.? == full_score);
+        s = match("Foo", "Foo", cs, match_type);
+        try expect(s.? == full_score);
+        s = match("Foo", "foo", cs, match_type);
+        try expect(s == null);
     }
 }
 fn exactMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool, match_type: MatchType) ?Score {
@@ -128,11 +139,13 @@ fn exactMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool, ma
     const negate = switch (match_type) {
         MT.exact, MT.prefix_exact, MT.suffix_exact => false,
         MT.inverse_exact, MT.inverse_prefix_exact, MT.inverse_suffix_exact => true,
+        MT.fuzzy => unreachable,
     };
     // reverse determines the direction of match. From end-to-beg (reverse) or vice versa
     const reverse = switch (match_type) {
         MT.inverse_exact, MT.exact, MT.suffix_exact, MT.inverse_suffix_exact => true,
         MT.prefix_exact, MT.inverse_prefix_exact => false,
+        MT.fuzzy => unreachable,
     };
 
     var i = if (reverse) text.len else 0;
@@ -191,7 +204,6 @@ test "exact match" {
     const MT = MatchType;
     const qs = Score.qs;
     const empty_score = (Score{}).score();
-    const full_score = (Score{ ._full = true }).score();
 
     { // exact
         const mt = MT.exact;
@@ -203,9 +215,6 @@ test "exact match" {
         try expect(3 == s.?._copy);
         try expect(qs(3) == s.?._straight_acc);
         try expect(1 == s.?._boundary_match);
-
-        s = exactMatch("foo", "foo", ci, mt);
-        try expect(full_score == s.?.score());
 
         s = exactMatch("foo_barxar", "bar", cs, mt);
         try expect(3 == s.?._copy);
@@ -231,9 +240,6 @@ test "exact match" {
         try expect(3 == s.?._copy);
         try expect(qs(3) == s.?._straight_acc);
         try expect(1 == s.?._boundary_match);
-
-        s = exactMatch("bar", "bar", ci, mt);
-        try expect(full_score == s.?.score());
 
         s = exactMatch("foobAr", "bAr", cs, mt);
         try expect(3 == s.?._copy);
@@ -263,9 +269,6 @@ test "exact match" {
         try expect(3 == s.?._copy);
         try expect(qs(3) == s.?._straight_acc);
         try expect(1 == s.?._boundary_match);
-
-        s = exactMatch("bar", "bar", ci, mt);
-        try expect(full_score == s.?.score());
 
         s = exactMatch("fOobar", "fOo", cs, mt);
         try expect(3 == s.?._copy);
@@ -323,56 +326,32 @@ test "exact match" {
     }
 }
 
-fn fuzzyMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool, reverse: bool) ?Score {
+fn fuzzyMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?Score {
     var score = Score{};
 
-    var i = if (reverse) text.len else 0;
-    var j = if (reverse) pattern.len else 0;
+    var i = text.len;
+    var j = pattern.len;
     var last_pj: u8 = undefined;
 
     var delete_acc: isize = 0;
     var straight_acc: u5 = 0;
 
     var boundary_slice: ?[]const u8 = null;
-    var boundary_beg: usize = undefined;
     var boundary_end: usize = undefined;
 
-    while ((i > 0 and j > 0 and reverse) or (i < text.len and j < pattern.len and !reverse)) : ({
-        // i = i + if(reverse) -1 else 1 // FIXME: why I can't use this to simplify loop? error: value with comptime-only type 'comptime_int' depends on runtime control flow
-        if (reverse) {
-            i -= 1;
-        } else {
-            i += 1;
-        }
-    }) {
-        const t_idx = if (reverse) i - 1 else i;
-        const p_idx = if (reverse) j - 1 else j;
-        const t_ch = text[t_idx];
-        const p_ch = pattern[p_idx];
-        const ti = if (is_case_sensitive) t_ch else toLower(t_ch);
-        const pj = if (is_case_sensitive) p_ch else toLower(p_ch);
+    while (i > 0 and j > 0) : (i -= 1) {
+        const ti = if (is_case_sensitive) text[i - 1] else toLower(text[i - 1]);
+        const pj = if (is_case_sensitive) pattern[j - 1] else toLower(pattern[j - 1]);
 
-        // when reversed we first encounter the end and then we'll reach the start.
-        // when not reversed we first encounter the start then we'll reach the end.
-        if (reverse) {
-            if (isEndBoundary(text, t_idx)) {
-                boundary_end = i;
-            }
-            if (isStartBoundary(text, t_idx)) {
-                boundary_slice = text[t_idx..boundary_end];
-            } else {
-                boundary_slice = null;
-            }
-        } else {
-            if (isStartBoundary(text, t_idx)) {
-                boundary_beg = i;
-            }
-            if (isEndBoundary(text, t_idx)) {
-                boundary_slice = text[boundary_beg .. t_idx + 1];
-            } else {
-                boundary_slice = null;
-            }
+        if (isEndBoundary(text, i - 1)) {
+            boundary_end = i;
         }
+        if (isStartBoundary(text, i - 1)) {
+            boundary_slice = text[i - 1 .. boundary_end];
+        } else {
+            boundary_slice = null;
+        }
+
         if (ti == pj) {
             score.copy(1);
             last_pj = pj;
@@ -380,8 +359,8 @@ fn fuzzyMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool, re
 
             if (boundary_slice) |b| {
                 delete_acc = 0;
-                // we don't want to give negative score if straight len is the same as boundary. i.e. full chunk match
-                // when it's a full chunk match we give boundary_match score. Note straight is caclulated separately.
+                // we don't want to give negative score if straight len is the same as boundary. i.e. full match for this chunk
+                // a boundary full match as extra positive score (boundary_match)
                 if (straight_acc != b.len) {
                     score.boundary_delete();
                 } else {
@@ -389,11 +368,7 @@ fn fuzzyMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool, re
                 }
             }
 
-            if (reverse) {
-                j -= 1;
-            } else {
-                j += 1;
-            }
+            j -= 1;
         } else if (last_pj == ti) {
             score.copy(1);
         } else {
@@ -410,9 +385,8 @@ fn fuzzyMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool, re
         }
     }
 
-    const match_found = if (reverse) j == 0 else j == pattern.len;
-    return if (match_found) {
-        if (text.len == pattern.len) {
+    return if (j == 0) {
+        if (i == 0) {
             score.full();
         } else {
             // commit what is left + kill
@@ -420,12 +394,8 @@ fn fuzzyMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool, re
             score.delete(delete_acc);
 
             // calculate kill
-            while ((i > 0 and reverse) or (i < text.len and !reverse)) : (if (reverse) {
-                i -= 1;
-            } else {
-                i += 1;
-            }) {
-                var ti = text[if (reverse) i - 1 else i];
+            while (i > 0) : (i -= 1) {
+                var ti = text[i - 1];
                 if (inPathSepSet(ti)) break else score.kill(1);
             }
         }
@@ -437,115 +407,100 @@ fn fuzzyMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool, re
 test "reverse fuzzy match" {
     const cs = true; // case-sensitive
     const ci = false; // case-insensitive
-    const reverse = true;
-    const no_rev = false;
     { // Copy
-        for ([_]bool{ true, false }) |rev| {
-            var r = fuzzyMatch("axy", "a", ci, rev);
-            try expect(r.?._copy == 1);
-            r = fuzzyMatch("xya", "a", ci, rev);
-            try expect(r.?._copy == 1);
+        var r = fuzzyMatch("axy", "a", ci);
+        try expect(r.?._copy == 1);
+        r = fuzzyMatch("xya", "a", ci);
+        try expect(r.?._copy == 1);
 
-            // Last pj respect case-sensitivity
-            // Last pj is only counted once because, search is terminated when j = 0
-            r = fuzzyMatch("ccbbaa", "cba", ci, reverse);
-            try expect(r.?._copy == 5);
-            r = fuzzyMatch("CCBBAA", "cba", ci, reverse);
-            try expect(r.?._copy == 5);
-            r = fuzzyMatch("CcbBaA", "cba", cs, reverse);
-            try expect(r.?._copy == 3);
-        }
+        r = fuzzyMatch("cbbaa", "cba", ci);
+        try expect(r.?._copy == 5);
+        // Last pj respect case-sensitivity
+        r = fuzzyMatch("CBBAA", "cba", ci);
+        try expect(r.?._copy == 5);
+        r = fuzzyMatch("cbBaA", "cba", cs);
+        try expect(r.?._copy == 3);
+        // Last pj is only counted once because, search is terminated when j = 0
+        r = fuzzyMatch("bbaa", "ba", ci);
+        try expect(r.?._copy == 3);
+
+        r = fuzzyMatch("baxyax", "ba", ci);
+        try expect(r.?._copy == 3);
     }
     { // Straight
         const qs = Score.qs;
-        for ([_]bool{ true, false }) |rev| {
-            var r = fuzzyMatch("_a", "a", ci, rev);
-            try expect(r.?._straight_acc == qs(1));
-            r = fuzzyMatch("?abc?", "abc", ci, rev);
-            try expect(r.?._straight_acc == qs(3));
-            r = fuzzyMatch("?abbbccc?", "abc", ci, rev);
-            try expect(r.?._straight_acc == qs(3));
 
-            r = fuzzyMatch("?ab?cde?", "abcde", ci, rev);
-            try expect(r.?._straight_acc == qs(2) + qs(3));
-            r = fuzzyMatch("?ab_cde?", "abcde", ci, rev);
-            try expect(r.?._straight_acc == qs(2) + qs(3));
-        }
+        var r = fuzzyMatch("_a", "a", ci);
+        try expect(r.?._straight_acc == qs(1));
+
+        r = fuzzyMatch("?abc?", "abc", ci);
+        try expect(r.?._straight_acc == qs(3));
+
+        r = fuzzyMatch("?abbbccc?", "abc", ci);
+        try expect(r.?._straight_acc == qs(3));
+
+        r = fuzzyMatch("?ab?cde?", "abcde", ci);
+        try expect(r.?._straight_acc == qs(2) + qs(3));
+
+        r = fuzzyMatch("?ab_cde?", "abcde", ci);
+        try expect(r.?._straight_acc == qs(2) + qs(3));
     }
     { // Delete
-        for ([_]bool{ true, false }) |rev| {
-            var r = fuzzyMatch("xxaxx", "a", ci, rev);
-            try expect(r.?._delete == 2);
+        var r = fuzzyMatch("?axx", "a", ci);
+        try expect(r.?._delete == 2);
 
-            r = fuzzyMatch("xxxbxxaxxx", "ba", ci, rev);
-            try expect(r.?._delete == 5);
-        }
+        r = fuzzyMatch("?bxxaxxx", "ba", ci);
+        try expect(r.?._delete == 5);
     }
     { // Boundary
-        for ([_]bool{ true, false }) |rev| {
-            var r = fuzzyMatch("xxa_axx", "a", cs, rev);
-            try expect(r.?._delete == 0);
-            try expect(r.?._boundary_delete == 1);
+        var r = fuzzyMatch("_axx", "a", cs);
+        try expect(r.?._delete == 0);
+        try expect(r.?._boundary_delete == 1);
 
-            r = fuzzyMatch("XXA_AXX", "a", ci, rev);
-            try expect(r.?._delete == 0);
-            try expect(r.?._boundary_delete == 1);
+        r = fuzzyMatch("_AXX", "a", ci);
+        try expect(r.?._delete == 0);
+        try expect(r.?._boundary_delete == 1);
 
-            r = fuzzyMatch("_a_B_c_", "abc", ci, rev);
-            try expect(r.?._delete == 0);
-            try expect(r.?._boundary_delete == 0);
+        r = fuzzyMatch("?_a_B_c", "abc", ci);
+        try expect(r.?._delete == 0);
+        try expect(r.?._boundary_delete == 0);
+        try expect(r.?._boundary_match == 3);
 
-            r = fuzzyMatch("_foo_", "foo", ci, rev);
-            try expect(r.?._delete == 0);
-            try expect(r.?._boundary_delete == 0);
-            try expect(r.?._boundary_match == 1);
-        }
-        var r = fuzzyMatch("_axx_foo", "afoo", ci, no_rev);
+        r = fuzzyMatch("_axx_foo", "afoo", ci);
         try expect(r.?._delete == 0);
         try expect(r.?._boundary_delete == 1);
         try expect(r.?._boundary_match == 1);
 
-        r = fuzzyMatch("AxxFoo", "afoo", ci, reverse);
+        r = fuzzyMatch("AxxFoo", "afoo", ci);
         try expect(r.?._delete == 0);
         try expect(r.?._boundary_delete == 1);
+        try expect(r.?._boundary_match == 1);
 
-        r = fuzzyMatch("AxxFoo", "AFoo", cs, reverse);
+        r = fuzzyMatch("AxxFoo", "AFoo", cs);
         try expect(r.?._delete == 0);
         try expect(r.?._boundary_delete == 1);
+        try expect(r.?._boundary_match == 1);
 
-        r = fuzzyMatch("_axx_fff", "af", ci, reverse);
+        r = fuzzyMatch("_axx_fff", "af", ci);
         try expect(r.?._delete == 0);
         try expect(r.?._boundary_delete == 1);
+        // last pj is not counted as full-boundary match
+        try expect(r.?._boundary_match == 0);
 
-        r = fuzzyMatch("_?ax_xbx", "ab", ci, reverse);
+        r = fuzzyMatch("_?ax_xbx", "ab", ci);
         try expect(r.?._delete == 4);
         try expect(r.?._boundary_delete == 0);
     }
     { // Kill
-        var r = fuzzyMatch("a", "a", ci, reverse);
-        try expect(r.?._kill == 0);
-        r = fuzzyMatch("a", "a", ci, no_rev);
+        var r = fuzzyMatch("a", "a", ci);
         try expect(r.?._kill == 0);
 
-        r = fuzzyMatch("xxa???", "a", ci, reverse);
-        try expect(r.?._kill == 2);
-        r = fuzzyMatch("???axx", "a", ci, no_rev);
+        r = fuzzyMatch("xxa???", "a", ci);
         try expect(r.?._kill == 2);
 
-        r = fuzzyMatch("??/xxa???", "a", ci, reverse);
-        try expect(r.?._kill == 2);
-        r = fuzzyMatch("??axx/???", "a", ci, no_rev);
+        r = fuzzyMatch("??/xxa???", "a", ci);
         try expect(r.?._kill == 2);
     }
-}
-test "no-reverse fuzzy match" {
-    const cs = true;
-    _ = cs; // case-sensitive
-    const ci = false;
-    _ = ci; // case-insensitive
-    const no_rev = false;
-    _ = no_rev;
-    {}
 }
 
 fn inBoundarySet(ch: u8) bool {
