@@ -323,49 +323,79 @@ test "exact match" {
     }
 }
 
-fn fuzzyMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?Score {
+fn fuzzyMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool, reverse: bool) ?Score {
     var score = Score{};
-    if (pattern.len == 0) return score; // empty pattern matches everything
 
-    var i = text.len;
-    var j = pattern.len;
+    var i = if (reverse) text.len else 0;
+    var j = if (reverse) pattern.len else 0;
     var last_pj: u8 = undefined;
 
     var delete_acc: isize = 0;
     var straight_acc: u5 = 0;
 
     var boundary_slice: ?[]const u8 = null;
+    var boundary_beg: usize = undefined;
     var boundary_end: usize = undefined;
 
-    while (i > 0 and j > 0) : (i -= 1) {
-        const ti = if (is_case_sensitive) text[i - 1] else toLower(text[i - 1]);
-        const pj = if (is_case_sensitive) pattern[j - 1] else toLower(pattern[j - 1]);
-
-        if (isEndBoundary(text, i - 1)) {
-            boundary_end = i;
-        }
-        if (isStartBoundary(text, i - 1)) {
-            boundary_slice = text[i - 1 .. boundary_end];
+    while ((i > 0 and j > 0 and reverse) or (i < text.len and j < pattern.len and !reverse)) : ({
+        // i = i + if(reverse) -1 else 1 // FIXME: why I can't use this to simplify loop? error: value with comptime-only type 'comptime_int' depends on runtime control flow
+        if (reverse) {
+            i -= 1;
         } else {
-            boundary_slice = null;
+            i += 1;
         }
+    }) {
+        const t_idx = if (reverse) i - 1 else i;
+        const p_idx = if (reverse) j - 1 else j;
+        const t_ch = text[t_idx];
+        const p_ch = pattern[p_idx];
+        const ti = if (is_case_sensitive) t_ch else toLower(t_ch);
+        const pj = if (is_case_sensitive) p_ch else toLower(p_ch);
 
+        // when reversed we first encounter the end and then we'll reach the start.
+        // when not reversed we first encounter the start then we'll reach the end.
+        if (reverse) {
+            if (isEndBoundary(text, t_idx)) {
+                boundary_end = i;
+            }
+            if (isStartBoundary(text, t_idx)) {
+                boundary_slice = text[t_idx..boundary_end];
+            } else {
+                boundary_slice = null;
+            }
+        } else {
+            if (isStartBoundary(text, t_idx)) {
+                boundary_beg = i;
+            }
+            if (isEndBoundary(text, t_idx)) {
+                boundary_slice = text[boundary_beg .. t_idx + 1];
+            } else {
+                boundary_slice = null;
+            }
+        }
         if (ti == pj) {
-            score.copy();
+            score.copy(1);
             last_pj = pj;
             straight_acc += 1;
 
             if (boundary_slice) |b| {
                 delete_acc = 0;
-                // We don't want to give negative score if straight len is the same as boundary. i.e. full match
+                // we don't want to give negative score if straight len is the same as boundary. i.e. full chunk match
+                // when it's a full chunk match we give boundary_match score. Note straight is caclulated separately.
                 if (straight_acc != b.len) {
                     score.boundary_delete();
+                } else {
+                    score.boundary_match();
                 }
             }
 
-            j -= 1;
+            if (reverse) {
+                j -= 1;
+            } else {
+                j += 1;
+            }
         } else if (last_pj == ti) {
-            score.copy();
+            score.copy(1);
         } else {
             delete_acc += 1;
             // commit straight
@@ -380,8 +410,9 @@ fn fuzzyMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?S
         }
     }
 
-    return if (j == 0) {
-        if (i == 0) {
+    const match_found = if (reverse) j == 0 else j == pattern.len;
+    return if (match_found) {
+        if (text.len == pattern.len) {
             score.full();
         } else {
             // commit what is left + kill
@@ -389,8 +420,12 @@ fn fuzzyMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?S
             score.delete(delete_acc);
 
             // calculate kill
-            while (i > 0) : (i -= 1) {
-                var ti = text[i - 1];
+            while ((i > 0 and reverse) or (i < text.len and !reverse)) : (if (reverse) {
+                i -= 1;
+            } else {
+                i += 1;
+            }) {
+                var ti = text[if (reverse) i - 1 else i];
                 if (inPathSepSet(ti)) break else score.kill(1);
             }
         }
@@ -399,7 +434,119 @@ fn fuzzyMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?S
     } else null;
 }
 
-test "match" {}
+test "reverse fuzzy match" {
+    const cs = true; // case-sensitive
+    const ci = false; // case-insensitive
+    const reverse = true;
+    const no_rev = false;
+    { // Copy
+        for ([_]bool{ true, false }) |rev| {
+            var r = fuzzyMatch("axy", "a", ci, rev);
+            try expect(r.?._copy == 1);
+            r = fuzzyMatch("xya", "a", ci, rev);
+            try expect(r.?._copy == 1);
+
+            // Last pj respect case-sensitivity
+            // Last pj is only counted once because, search is terminated when j = 0
+            r = fuzzyMatch("ccbbaa", "cba", ci, reverse);
+            try expect(r.?._copy == 5);
+            r = fuzzyMatch("CCBBAA", "cba", ci, reverse);
+            try expect(r.?._copy == 5);
+            r = fuzzyMatch("CcbBaA", "cba", cs, reverse);
+            try expect(r.?._copy == 3);
+        }
+    }
+    { // Straight
+        const qs = Score.qs;
+        for ([_]bool{ true, false }) |rev| {
+            var r = fuzzyMatch("_a", "a", ci, rev);
+            try expect(r.?._straight_acc == qs(1));
+            r = fuzzyMatch("?abc?", "abc", ci, rev);
+            try expect(r.?._straight_acc == qs(3));
+            r = fuzzyMatch("?abbbccc?", "abc", ci, rev);
+            try expect(r.?._straight_acc == qs(3));
+
+            r = fuzzyMatch("?ab?cde?", "abcde", ci, rev);
+            try expect(r.?._straight_acc == qs(2) + qs(3));
+            r = fuzzyMatch("?ab_cde?", "abcde", ci, rev);
+            try expect(r.?._straight_acc == qs(2) + qs(3));
+        }
+    }
+    { // Delete
+        for ([_]bool{ true, false }) |rev| {
+            var r = fuzzyMatch("xxaxx", "a", ci, rev);
+            try expect(r.?._delete == 2);
+
+            r = fuzzyMatch("xxxbxxaxxx", "ba", ci, rev);
+            try expect(r.?._delete == 5);
+        }
+    }
+    { // Boundary
+        for ([_]bool{ true, false }) |rev| {
+            var r = fuzzyMatch("xxa_axx", "a", cs, rev);
+            try expect(r.?._delete == 0);
+            try expect(r.?._boundary_delete == 1);
+
+            r = fuzzyMatch("XXA_AXX", "a", ci, rev);
+            try expect(r.?._delete == 0);
+            try expect(r.?._boundary_delete == 1);
+
+            r = fuzzyMatch("_a_B_c_", "abc", ci, rev);
+            try expect(r.?._delete == 0);
+            try expect(r.?._boundary_delete == 0);
+
+            r = fuzzyMatch("_foo_", "foo", ci, rev);
+            try expect(r.?._delete == 0);
+            try expect(r.?._boundary_delete == 0);
+            try expect(r.?._boundary_match == 1);
+        }
+        var r = fuzzyMatch("_axx_foo", "afoo", ci, no_rev);
+        try expect(r.?._delete == 0);
+        try expect(r.?._boundary_delete == 1);
+        try expect(r.?._boundary_match == 1);
+
+        r = fuzzyMatch("AxxFoo", "afoo", ci, reverse);
+        try expect(r.?._delete == 0);
+        try expect(r.?._boundary_delete == 1);
+
+        r = fuzzyMatch("AxxFoo", "AFoo", cs, reverse);
+        try expect(r.?._delete == 0);
+        try expect(r.?._boundary_delete == 1);
+
+        r = fuzzyMatch("_axx_fff", "af", ci, reverse);
+        try expect(r.?._delete == 0);
+        try expect(r.?._boundary_delete == 1);
+
+        r = fuzzyMatch("_?ax_xbx", "ab", ci, reverse);
+        try expect(r.?._delete == 4);
+        try expect(r.?._boundary_delete == 0);
+    }
+    { // Kill
+        var r = fuzzyMatch("a", "a", ci, reverse);
+        try expect(r.?._kill == 0);
+        r = fuzzyMatch("a", "a", ci, no_rev);
+        try expect(r.?._kill == 0);
+
+        r = fuzzyMatch("xxa???", "a", ci, reverse);
+        try expect(r.?._kill == 2);
+        r = fuzzyMatch("???axx", "a", ci, no_rev);
+        try expect(r.?._kill == 2);
+
+        r = fuzzyMatch("??/xxa???", "a", ci, reverse);
+        try expect(r.?._kill == 2);
+        r = fuzzyMatch("??axx/???", "a", ci, no_rev);
+        try expect(r.?._kill == 2);
+    }
+}
+test "no-reverse fuzzy match" {
+    const cs = true;
+    _ = cs; // case-sensitive
+    const ci = false;
+    _ = ci; // case-insensitive
+    const no_rev = false;
+    _ = no_rev;
+    {}
+}
 
 fn inBoundarySet(ch: u8) bool {
     inline for (boundary_set) |b| {
