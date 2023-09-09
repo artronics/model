@@ -14,16 +14,7 @@
         {
             "label": "run fzf tests",
             "type": "shell",
-            "command": "${env:HOME}/.local/bin/zig test -femit-bin=${workspaceFolder}/zig-out/lib/search-test ${workspaceFolder}/src/fzf.zig",
-            "problemMatcher": [],
-            "group": {
-                "kind": "test",
-            }
-        },
-        {
-            "label": "run fzf2 tests",
-            "type": "shell",
-            "command": "${env:HOME}/.local/bin/zig test -femit-bin=${workspaceFolder}/zig-out/lib/fzf-test ${workspaceFolder}/src/fzf2.zig",
+            "command": "${env:HOME}/.local/bin/zig test -femit-bin=${workspaceFolder}/zig-out/lib/fzf-test ${workspaceFolder}/src/fzf.zig",
             "problemMatcher": [],
             "group": {
                 "kind": "test",
