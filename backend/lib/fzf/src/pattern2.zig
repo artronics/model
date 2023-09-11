@@ -74,7 +74,29 @@ const Chunk = struct {
 };
 
 pub const Pattern = struct {
-    expr: Expr,
+    arena: ArenaAllocator,
+    expr: Expr = undefined,
+    buf: []u8 = undefined,
+
+    pub fn init(allocator: Allocator) Pattern {
+        return .{ .arena = ArenaAllocator.init(allocator) };
+    }
+    pub fn deinit(self: Pattern) void {
+        self.arena.deinit();
+    }
+
+    pub fn parse(self: *Pattern, pattern: []const u8) !void {
+        const alloc = self.arena.allocator();
+        self.buf = try alloc.alloc(u8, pattern.len);
+
+        var scanner = Scanner.init(alloc, pattern, self.buf);
+        defer scanner.deinit();
+        const tokens = try scanner.scan();
+
+        var parser = Parser.init(alloc, tokens);
+
+        self.expr = try parser.parse();
+    }
 
     fn allocPrint(pattern: Pattern, alloc: Allocator) ![]const u8 {
         var string = ArrayList(u8).init(alloc);
@@ -87,19 +109,14 @@ pub const Pattern = struct {
 
 test "pattern" {
     const a = testing.allocator;
-    const pattern = "foo bar";
-    const buf = try a.alloc(u8, pattern.len);
-    defer a.free(buf);
+    const p_str = "foo bar";
+    var pattern = Pattern.init(a);
+    defer pattern.deinit();
 
-    const tokens = blk: {
-        var scanner = Scanner.init(a, pattern, buf);
-        defer scanner.deinit();
-        break :blk try scanner.scan();
-    };
-    defer a.free(tokens);
+    try pattern.parse(p_str);
 
-    const parser = Parser.init(a, tokens);
-    defer parser.deinit();
+    try sliceEq(u8, "foo", pattern.expr.and_op.l.chunk.pattern);
+    try sliceEq(u8, "bar", pattern.expr.and_op.r.chunk.pattern);
 }
 
 const ParseError = error{InsufficientToken};
@@ -107,26 +124,19 @@ const ParseError = error{InsufficientToken};
 const Parser = struct {
     const Self = @This();
 
-    arena: ArenaAllocator,
+    allocator: Allocator,
     tokens: []const Token,
     current: usize = 0,
 
     fn init(allocator: Allocator, tokens: []const Token) Self {
-        var arena = ArenaAllocator.init(allocator);
-
         return .{
-            .arena = arena,
+            .allocator = allocator,
             .tokens = tokens,
         };
     }
 
-    fn deinit(self: Self) void {
-        self.arena.deinit();
-    }
-
-    fn parse(self: *Self) !Pattern {
-        const exp = try self.expr();
-        return Pattern{ .expr = exp };
+    fn parse(self: *Self) !Expr {
+        return self.expr();
     }
 
     fn expr(self: *Self) !Expr {
@@ -136,15 +146,15 @@ const Parser = struct {
     // andExpr -> orExpr (<space> orExpr)*
     fn andExpr(self: *Self) !Expr {
         var lhs = try self.orExpr();
+
         while (self.match(&.{Tag.and_op})) {
-            const alloc = self.arena.allocator();
-            var l = try alloc.create(Expr);
-            errdefer alloc.destroy(l);
+            var l = try self.allocator.create(Expr);
+            errdefer self.allocator.destroy(l);
             l.* = lhs;
 
             const rhs = try self.orExpr();
-            var r = try alloc.create(Expr);
-            errdefer alloc.destroy(r);
+            var r = try self.allocator.create(Expr);
+            errdefer self.allocator.destroy(r);
             r.* = rhs;
 
             lhs = Expr{ .and_op = BinExpr{ .l = l, .r = r } };
@@ -155,15 +165,15 @@ const Parser = struct {
     // orExpr -> chunk ( | chunk)*
     fn orExpr(self: *Self) !Expr {
         var lhs = try self.chunk();
+
         while (self.match(&.{Tag.or_op})) {
-            const alloc = self.arena.allocator();
-            var l = try alloc.create(Expr);
-            errdefer alloc.destroy(l);
+            var l = try self.allocator.create(Expr);
+            errdefer self.allocator.destroy(l);
             l.* = lhs;
 
             const rhs = try self.chunk();
-            var r = try alloc.create(Expr);
-            errdefer alloc.destroy(r);
+            var r = try self.allocator.create(Expr);
+            errdefer self.allocator.destroy(r);
             r.* = rhs;
 
             lhs = Expr{ .or_op = BinExpr{ .l = l, .r = r } };
@@ -190,7 +200,7 @@ const Parser = struct {
                     if (self.peek().tag == Tag.text) {
                         chk.match_type = Chunk.MatchType.inverse_exact;
                     } else if (self.peek().tag == Tag.prefix) {
-                        chk.match_type = Chunk.MatchType.inverse_exact;
+                        chk.match_type = Chunk.MatchType.inverse_prefix_exact;
                         _ = self.advance();
                     }
                     const text = self.consume(Tag.text, "expected text; fallback to empty string") catch Token{ .tag = Tag.text, .lexeme = "" };
@@ -230,7 +240,7 @@ const Parser = struct {
     }
 
     fn isAtEnd(self: *Self) bool {
-        return self.current >= self.tokens.len;
+        return self.tokens[self.current].tag == Tag.eof;
     }
 
     fn peek(self: *Self) Token {
@@ -248,8 +258,9 @@ const Parser = struct {
     }
 
     test "parser" {
-        const a = testing.allocator;
-        // ^foo | !bar !baz$ -> (and (or 'foo !bar) !baz$)
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        // ^foo | !bar !baz$ | !^bax ->  (and (or 'foo !bar) (or !baz$ !^bax))
         const tokens = [_]Token{
             .{ .tag = Tag.exact },
             .{ .tag = Tag.text, .lexeme = "foo" },
@@ -264,26 +275,34 @@ const Parser = struct {
             .{ .tag = Tag.inverse },
             .{ .tag = Tag.text, .lexeme = "baz" },
             .{ .tag = Tag.suffix },
+
+            .{ .tag = Tag.or_op },
+
+            .{ .tag = Tag.inverse },
+            .{ .tag = Tag.prefix },
+            .{ .tag = Tag.text, .lexeme = "bax" },
+
+            .{ .tag = Tag.eof },
         };
-        var parser = Parser.init(a, &tokens);
-        defer parser.deinit();
+        var parser = Parser.init(arena.allocator(), &tokens);
 
-        const pattern = try parser.parse();
-        const str = try pattern.allocPrint(a);
-        defer a.free(str);
-        std.log.warn("{s}", .{str});
+        const exp = try parser.parse();
 
-        const and_expr = pattern.expr.and_op;
-        // right
-        try sliceEq(u8, "baz", and_expr.r.chunk.pattern);
-        try expect(and_expr.r.chunk.match_type == Chunk.MatchType.inverse_suffix_exact);
+        const and_expr = exp.and_op;
         // left
-        const or_expr = and_expr.l.or_op;
-        try sliceEq(u8, "foo", or_expr.l.chunk.pattern);
-        try expect(or_expr.l.chunk.match_type == Chunk.MatchType.exact);
+        const l_or = and_expr.l.or_op;
+        try sliceEq(u8, "foo", l_or.l.chunk.pattern);
+        try expect(l_or.l.chunk.match_type == Chunk.MatchType.exact);
 
-        try sliceEq(u8, "bar", or_expr.r.chunk.pattern);
-        try expect(or_expr.r.chunk.match_type == Chunk.MatchType.inverse_exact);
+        try sliceEq(u8, "bar", l_or.r.chunk.pattern);
+        try expect(l_or.r.chunk.match_type == Chunk.MatchType.inverse_exact);
+        // right
+        const r_or = and_expr.r.or_op;
+        try sliceEq(u8, "baz", r_or.l.chunk.pattern);
+        try expect(r_or.l.chunk.match_type == Chunk.MatchType.inverse_suffix_exact);
+
+        try sliceEq(u8, "bax", r_or.r.chunk.pattern);
+        try expect(r_or.r.chunk.match_type == Chunk.MatchType.inverse_prefix_exact);
     }
 };
 
@@ -331,7 +350,8 @@ const Scanner = struct {
             try s.chunk();
             try s.operator();
         }
-        return s.tokens.toOwnedSlice();
+        try s.tokens.append(.{ .tag = Tag.eof });
+        return s.tokens.items;
     }
     fn chunk(s: *Scanner) !void {
         if (s.match('!')) {
@@ -425,9 +445,8 @@ const Scanner = struct {
             defer s.deinit();
 
             const tokens = try s.scan();
-            defer a.free(tokens);
 
-            try expect(tokens.len == 0);
+            try expect(tokens[0].tag == Tag.eof);
         }
         {
             const pattern = "foobar";
@@ -435,7 +454,6 @@ const Scanner = struct {
             defer s.deinit();
 
             const tokens = try s.scan();
-            defer a.free(tokens);
 
             try expect(tokens[0].tag == Tag.text);
             try sliceEq(u8, "foobar", tokens[0].lexeme.?);
@@ -446,7 +464,6 @@ const Scanner = struct {
             defer s.deinit();
 
             const tokens = try s.scan();
-            defer a.free(tokens);
 
             try expect(tokens[0].tag == Tag.text);
             try sliceEq(u8, "foo", tokens[0].lexeme.?);
@@ -467,7 +484,6 @@ const Scanner = struct {
             defer s.deinit();
 
             const tokens = try s.scan();
-            defer a.free(tokens);
 
             try expect(tokens[0].tag == Tag.inverse);
             try expect(tokens[1].tag == Tag.exact);
@@ -498,7 +514,6 @@ const Scanner = struct {
         defer s.deinit();
 
         const tokens = try s.scan();
-        defer a.free(tokens);
 
         try expect(tokens[0].tag == Tag.text);
         try sliceEq(u8, "!foo bar$ ^bax | baz", tokens[0].lexeme.?);
