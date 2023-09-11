@@ -109,11 +109,10 @@ pub const Pattern = struct {
 
 test "pattern" {
     const a = testing.allocator;
-    const p_str = "foo bar";
     var pattern = Pattern.init(a);
     defer pattern.deinit();
 
-    try pattern.parse(p_str);
+    try pattern.parse("foo bar");
 
     try sliceEq(u8, "foo", pattern.expr.and_op.l.chunk.pattern);
     try sliceEq(u8, "bar", pattern.expr.and_op.r.chunk.pattern);
@@ -147,7 +146,7 @@ const Parser = struct {
     fn andExpr(self: *Self) !Expr {
         var lhs = try self.orExpr();
 
-        while (self.match(&.{Tag.and_op})) {
+        while (self.matchAny(&.{Tag.and_op})) {
             var l = try self.allocator.create(Expr);
             errdefer self.allocator.destroy(l);
             l.* = lhs;
@@ -166,7 +165,7 @@ const Parser = struct {
     fn orExpr(self: *Self) !Expr {
         var lhs = try self.chunk();
 
-        while (self.match(&.{Tag.or_op})) {
+        while (self.matchAny(&.{Tag.or_op})) {
             var l = try self.allocator.create(Expr);
             errdefer self.allocator.destroy(l);
             l.* = lhs;
@@ -184,7 +183,7 @@ const Parser = struct {
 
     // chunk -> !?^?TEXT$?
     fn chunk(self: *Self) !Expr {
-        if (self.match(&.{ Tag.exact, Tag.inverse, Tag.prefix, Tag.suffix, Tag.text })) {
+        if (self.matchAny(&.{ Tag.exact, Tag.inverse, Tag.prefix, Tag.suffix, Tag.text })) {
             var chk = Chunk{};
             const prev = self.previous();
             switch (prev.tag) {
@@ -197,15 +196,15 @@ const Parser = struct {
                     chk.pattern = text.lexeme.?;
                 },
                 Tag.inverse => {
-                    if (self.peek().tag == Tag.text) {
+                    if (self.match(Tag.text)) {
                         chk.match_type = Chunk.MatchType.inverse_exact;
-                    } else if (self.peek().tag == Tag.prefix) {
+                    } else if (self.match(Tag.prefix)) {
                         chk.match_type = Chunk.MatchType.inverse_prefix_exact;
                         _ = self.advance();
                     }
                     const text = self.consume(Tag.text, "expected text; fallback to empty string") catch Token{ .tag = Tag.text, .lexeme = "" };
                     chk.pattern = text.lexeme.?;
-                    if (self.peek().tag == Tag.suffix) {
+                    if (self.match(Tag.suffix)) {
                         // FIXME: !^foo$ makes no sense. Yet here, if this happened we'll ignore the prefix and instead use the suffix
                         // What is the right behaviour?
                         chk.match_type = Chunk.MatchType.inverse_suffix_exact;
@@ -219,13 +218,13 @@ const Parser = struct {
         return ParseError.InsufficientToken;
     }
     fn advance(self: *Self) Token {
-        if (!self.isAtEnd()) self.current += 1;
+        if (!self.isEof()) self.current += 1;
         return self.previous();
     }
 
-    fn match(self: *Self, tags: []const Tag) bool {
+    fn matchAny(self: *Self, tags: []const Tag) bool {
         for (tags) |tag| {
-            if (self.check(tag)) {
+            if (self.match(tag)) {
                 _ = self.advance();
                 return true;
             }
@@ -233,18 +232,12 @@ const Parser = struct {
         return false;
     }
 
-    fn check(self: *Self, tag: Tag) bool {
-        // FIXME: below is unnecessary and, it fails given tag=Eof
-        if (self.isAtEnd()) return false;
-        return self.peek().tag == tag;
+    fn match(self: *Self, tag: Tag) bool {
+        return self.tokens[self.current].tag == tag;
     }
 
-    fn isAtEnd(self: *Self) bool {
+    fn isEof(self: *Self) bool {
         return self.tokens[self.current].tag == Tag.eof;
-    }
-
-    fn peek(self: *Self) Token {
-        return self.tokens[self.current];
     }
 
     fn previous(self: *Self) Token {
@@ -252,7 +245,7 @@ const Parser = struct {
     }
 
     fn consume(self: *Self, tag: Tag, msg: []const u8) !Token {
-        if (self.check(tag)) return self.advance();
+        if (self.match(tag)) return self.advance();
         std.log.warn("Unexpected token: {s}", .{msg});
         return ParseError.InsufficientToken;
     }
@@ -346,7 +339,7 @@ const Scanner = struct {
         s.tokens.deinit();
     }
     fn scan(s: *Scanner) ![]const Token {
-        while (!s.isAtEnd()) {
+        while (!s.isEof()) {
             try s.chunk();
             try s.operator();
         }
@@ -387,7 +380,7 @@ const Scanner = struct {
         var has_suffix = false;
 
         // break until under:  "foo", "foo ", "foo$", "foo$ " and account for escape: "foo\$", "foo\ bar" etc
-        while (!s.isAtEnd()) {
+        while (!s.isEof()) {
             if (s.peek() == '\\' and (s.peekNext() == ' ' or s.peekNext() == '$')) {
                 _ = s.advance();
                 s.buf[s.buf_i] = s.advance();
@@ -416,7 +409,7 @@ const Scanner = struct {
         return ch;
     }
     fn match(s: *Scanner, expected: u8) bool {
-        if (s.isAtEnd()) return false;
+        if (s.isEof()) return false;
         if (s.source[s.current] != expected) return false;
 
         s.current += 1;
@@ -424,14 +417,14 @@ const Scanner = struct {
         return true;
     }
     fn peek(s: *Scanner) u8 {
-        if (s.isAtEnd()) return 0;
+        if (s.isEof()) return 0;
         return s.source[s.current];
     }
     fn peekNext(s: *Scanner) u8 {
         if (s.current + 1 >= s.source.len) return 0;
         return s.source[s.current + 1];
     }
-    fn isAtEnd(s: *Scanner) bool {
+    fn isEof(s: *Scanner) bool {
         return s.current >= s.source.len;
     }
 
