@@ -112,10 +112,72 @@ test "pattern" {
     var pattern = Pattern.init(a);
     defer pattern.deinit();
 
-    try pattern.parse("foo bar");
+    {
+        try pattern.parse("foo bar");
 
-    try sliceEq(u8, "foo", pattern.expr.and_op.l.chunk.pattern);
-    try sliceEq(u8, "bar", pattern.expr.and_op.r.chunk.pattern);
+        try sliceEq(u8, "foo", pattern.expr.and_op.l.chunk.pattern);
+        try sliceEq(u8, "bar", pattern.expr.and_op.r.chunk.pattern);
+    }
+    {
+        try pattern.parse("baz | bax");
+
+        try sliceEq(u8, "baz", pattern.expr.or_op.l.chunk.pattern);
+        try sliceEq(u8, "bax", pattern.expr.or_op.r.chunk.pattern);
+    }
+    {
+        try pattern.parse("foobar");
+        try sliceEq(u8, "foobar", pattern.expr.chunk.pattern);
+    }
+}
+test "pattern handling errors" {
+    const a = testing.allocator;
+    var pattern = Pattern.init(a);
+    defer pattern.deinit();
+
+    // Insufficient tokens should produce an empty chunk with default fields
+    {
+        try pattern.parse("foo | ");
+
+        try expect(Expr.or_op == pattern.expr);
+        try sliceEq(u8, "foo", pattern.expr.or_op.l.chunk.pattern);
+
+        try sliceEq(u8, "", pattern.expr.or_op.r.chunk.pattern);
+        try expect(Chunk.MatchType.fuzzy == pattern.expr.or_op.r.chunk.match_type);
+        try expect(pattern.expr.or_op.r.chunk.is_case_insensitive);
+    }
+    {
+        try pattern.parse("bar ");
+
+        try expect(Expr.and_op == pattern.expr);
+        try sliceEq(u8, "bar", pattern.expr.and_op.l.chunk.pattern);
+
+        try sliceEq(u8, "", pattern.expr.and_op.r.chunk.pattern);
+        try expect(Chunk.MatchType.fuzzy == pattern.expr.and_op.r.chunk.match_type);
+        try expect(pattern.expr.and_op.r.chunk.is_case_insensitive);
+    }
+    // Pending for chunk shouldn't cause errors, instead should assume empty string
+    {
+        try pattern.parse("!");
+
+        try expect(Expr.chunk == pattern.expr);
+        try sliceEq(u8, "", pattern.expr.chunk.pattern);
+        try expect(Chunk.MatchType.inverse_exact == pattern.expr.chunk.match_type);
+        try expect(pattern.expr.chunk.is_case_insensitive);
+    }
+    {
+        try pattern.parse("!^");
+
+        try expect(Expr.chunk == pattern.expr);
+        try sliceEq(u8, "", pattern.expr.chunk.pattern);
+        try expect(Chunk.MatchType.inverse_prefix_exact == pattern.expr.chunk.match_type);
+    }
+    {
+        try pattern.parse("!$");
+
+        try expect(Expr.chunk == pattern.expr);
+        try sliceEq(u8, "", pattern.expr.chunk.pattern);
+        try expect(Chunk.MatchType.inverse_suffix_exact == pattern.expr.chunk.match_type);
+    }
 }
 
 const ParseError = error{InsufficientToken};
@@ -163,14 +225,14 @@ const Parser = struct {
     }
     // orExpr -> chunk ( | chunk)*
     fn orExpr(self: *Self) !Expr {
-        var lhs = try self.chunk();
+        var lhs = self.chunk();
 
         while (self.matchAny(&.{Tag.or_op})) {
             var l = try self.allocator.create(Expr);
             errdefer self.allocator.destroy(l);
             l.* = lhs;
 
-            const rhs = try self.chunk();
+            const rhs = self.chunk();
             var r = try self.allocator.create(Expr);
             errdefer self.allocator.destroy(r);
             r.* = rhs;
@@ -182,7 +244,7 @@ const Parser = struct {
     }
 
     // chunk -> !?^?TEXT$?
-    fn chunk(self: *Self) !Expr {
+    fn chunk(self: *Self) Expr {
         if (self.matchAny(&.{ Tag.exact, Tag.inverse, Tag.prefix, Tag.suffix, Tag.text })) {
             var chk = Chunk{};
             const prev = self.previous();
@@ -215,7 +277,7 @@ const Parser = struct {
             }
             return Expr{ .chunk = chk };
         }
-        return ParseError.InsufficientToken;
+        return .{ .chunk = .{} };
     }
     fn advance(self: *Self) Token {
         if (!self.isEof()) self.current += 1;
