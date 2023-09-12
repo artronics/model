@@ -8,7 +8,7 @@ const sliceEq = testing.expectEqualSlices;
 // TODO: import fzf_options doesn't work when running test for this file
 // const options = @import("fzf_options");
 const options = .{ .max_pattern_len = 64, .max_sub_pattern_size = 8 };
-pub const max_pattern_len = options.max_pattern_len;
+const max_pattern_len = options.max_pattern_len;
 
 const BinExpr = struct {
     l: *Expr,
@@ -46,7 +46,6 @@ const Expr = union(enum) {
 };
 const Chunk = struct {
     pattern: []const u8 = undefined,
-    is_case_insensitive: bool = true,
     match_type: MatchType = MatchType.fuzzy,
 
     pub const MatchType = enum {
@@ -143,7 +142,6 @@ test "pattern handling errors" {
 
         try sliceEq(u8, "", pattern.expr.or_op.r.chunk.pattern);
         try expect(Chunk.MatchType.fuzzy == pattern.expr.or_op.r.chunk.match_type);
-        try expect(pattern.expr.or_op.r.chunk.is_case_insensitive);
     }
     {
         try pattern.parse("bar ");
@@ -153,7 +151,6 @@ test "pattern handling errors" {
 
         try sliceEq(u8, "", pattern.expr.and_op.r.chunk.pattern);
         try expect(Chunk.MatchType.fuzzy == pattern.expr.and_op.r.chunk.match_type);
-        try expect(pattern.expr.and_op.r.chunk.is_case_insensitive);
     }
     // Pending for chunk shouldn't cause errors, instead should assume empty string
     {
@@ -162,7 +159,6 @@ test "pattern handling errors" {
         try expect(Expr.chunk == pattern.expr);
         try sliceEq(u8, "", pattern.expr.chunk.pattern);
         try expect(Chunk.MatchType.inverse_exact == pattern.expr.chunk.match_type);
-        try expect(pattern.expr.chunk.is_case_insensitive);
     }
     {
         try pattern.parse("!^");
