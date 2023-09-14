@@ -5,7 +5,8 @@ const toUpper = std.ascii.toUpper;
 const testing = std.testing;
 const expect = testing.expect;
 
-const max_pattern_len = @import("pattern.zig").max_pattern_len;
+// FIXME: get this from straight type bit size
+const max_straight_exponent = 32;
 
 const path_separator = [_]u8{ '.', '/', '\\' };
 const boundary_set = [_]u8{ '_', ' ', '-' } ++ path_separator;
@@ -187,7 +188,7 @@ fn exactMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool, ma
             score.full();
         } else {
             score.copy(@intCast(pattern.len));
-            score.straight(@intCast(@min(pattern.len, max_pattern_len)));
+            score.straight(@intCast(@min(pattern.len, max_straight_exponent)));
             if (i == 0 or i == text.len or
                 (reverse and isStartBoundary(text, i)) or
                 (!reverse and isEndBoundary(text, i - 1)))

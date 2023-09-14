@@ -21,7 +21,7 @@ const BinExpr = struct {
         try str.append(')');
     }
 };
-const Expr = union(enum) {
+pub const Expr = union(enum) {
     and_op: BinExpr,
     or_op: BinExpr,
     chunk: Chunk,
@@ -44,7 +44,7 @@ const Expr = union(enum) {
         }
     }
 };
-const Chunk = struct {
+pub const Chunk = struct {
     pattern: []const u8 = undefined,
     match_type: MatchType = MatchType.fuzzy,
 

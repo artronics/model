@@ -12,6 +12,15 @@
             }
         },
         {
+            "label": "run main tests",
+            "type": "shell",
+            "command": "${env:HOME}/.local/bin/zig test -femit-bin=${workspaceFolder}/zig-out/lib/main-test ${workspaceFolder}/src/main.zig",
+            "problemMatcher": [],
+            "group": {
+                "kind": "test",
+            }
+        },
+        {
             "label": "run fzf tests",
             "type": "shell",
             "command": "${env:HOME}/.local/bin/zig test -femit-bin=${workspaceFolder}/zig-out/lib/fzf-test ${workspaceFolder}/src/fzf.zig",
