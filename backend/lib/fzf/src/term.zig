@@ -60,9 +60,10 @@ pub const Term = struct {
         self.arena.deinit();
     }
 
-    // FIXME: arena should be deinit() at the start otherwise, memory will accumulate
     pub fn parse(self: *Term, term: []const u8) !void {
+        _ = self.arena.reset(ArenaAllocator.ResetMode.retain_capacity);
         const alloc = self.arena.allocator();
+
         self.buf = try alloc.alloc(u8, term.len);
 
         var scanner = Scanner.init(alloc, term, self.buf);
