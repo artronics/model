@@ -94,7 +94,7 @@ pub const MatchType = enum(u8) {
     fuzzy = 6,
 };
 pub fn match(text: []const u8, pattern: []const u8, is_case_sensitive: bool, match_type: MatchType) ?isize {
-    if (pattern.len == 0) return (Score{}).score(); // empty pattern matches everything
+    if (pattern.len == 0) return (Score{}).score(); // empty pattern matches everything, even in inverse
 
     const MT = MatchType;
     const is_fuzzy = switch (match_type) {

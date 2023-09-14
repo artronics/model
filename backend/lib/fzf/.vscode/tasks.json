@@ -30,9 +30,9 @@
             }
         },
         {
-            "label": "run pattern tests",
+            "label": "run term tests",
             "type": "shell",
-            "command": "${env:HOME}/.local/bin/zig test -femit-bin=${workspaceFolder}/zig-out/lib/pattern-test ${workspaceFolder}/src/pattern.zig",
+            "command": "${env:HOME}/.local/bin/zig test -femit-bin=${workspaceFolder}/zig-out/lib/term-test ${workspaceFolder}/src/term.zig",
             "problemMatcher": [],
             "group": {
                 "kind": "test",

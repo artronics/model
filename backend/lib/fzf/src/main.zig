@@ -2,7 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const algo = @import("algo.zig");
-const pattern = @import("term.zig");
+const term = @import("term.zig");
 const testing = std.testing;
 const expect = testing.expect;
 
@@ -13,27 +13,27 @@ pub const MatchFinder = struct {
     const Self = @This();
 
     allocator: Allocator,
-    pattern: pattern.Term,
+    term: term.Term,
     smart_case: bool = false,
     haystack: []const []const u8,
 
     pub fn init(allocator: Allocator, texts: []const []const u8) Self {
         return .{
             .allocator = allocator,
-            .pattern = pattern.Term.init(allocator),
+            .term = term.Term.init(allocator),
             .haystack = texts,
         };
     }
     pub fn deinit(self: Self) void {
-        self.pattern.deinit();
+        self.term.deinit();
     }
-    pub fn search(self: *Self, term: []const u8) !?isize {
-        try self.pattern.parse(term);
-        return self.reduceScore(null, self.pattern.expr);
+    pub fn search(self: *Self, term_str: []const u8) !?isize {
+        try self.term.parse(term_str);
+        return self.reduceScore(null, self.term.expr);
     }
-    fn reduceScore(self: Self, acc: ?isize, expr: pattern.Expr) ?isize {
+    fn reduceScore(self: Self, acc: ?isize, expr: term.Expr) ?isize {
         return switch (expr) {
-            pattern.Expr.chunk => |chunk| {
+            term.Expr.chunk => |chunk| {
                 return if (self.matchChunk(chunk)) |s| {
                     return if (acc) |ss| {
                         // FIXME: Should it be addition or max? same for other branches
@@ -42,7 +42,7 @@ pub const MatchFinder = struct {
                     } else s;
                 } else null;
             },
-            pattern.Expr.and_op => |op| {
+            term.Expr.and_op => |op| {
                 const ls = self.reduceScore(acc, op.l.*);
                 return if (ls) |s| {
                     const rs = self.reduceScore(s, op.r.*);
@@ -52,7 +52,7 @@ pub const MatchFinder = struct {
                     } else null;
                 } else null;
             },
-            pattern.Expr.or_op => |op| {
+            term.Expr.or_op => |op| {
                 const ls = self.reduceScore(acc, op.l.*);
                 return if (ls) |s| {
                     return s;
@@ -63,8 +63,8 @@ pub const MatchFinder = struct {
             },
         };
     }
-    fn matchChunk(self: Self, chunk: pattern.Chunk) ?isize {
-        const Cmt = pattern.Chunk.MatchType;
+    fn matchChunk(self: Self, chunk: term.Chunk) ?isize {
+        const Cmt = term.Chunk.MatchType;
         const mt = switch (chunk.match_type) {
             Cmt.fuzzy => MatchType.fuzzy,
             Cmt.exact => MatchType.exact,

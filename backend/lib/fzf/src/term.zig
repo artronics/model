@@ -2,6 +2,9 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
+const chk = @import("chunk.zig");
+const MatchType = chk.MatchType;
+const Chunk = chk.Chunk;
 const testing = std.testing;
 const expect = testing.expect;
 const sliceEq = testing.expectEqualSlices;
@@ -42,33 +45,6 @@ pub const Expr = union(enum) {
                 try str.appendSlice(s);
             },
         }
-    }
-};
-pub const Chunk = struct {
-    pattern: []const u8 = undefined,
-    match_type: MatchType = MatchType.fuzzy,
-
-    pub const MatchType = enum {
-        fuzzy,
-        exact,
-        prefix_exact,
-        suffix_exact,
-        inverse_exact,
-        inverse_prefix_exact,
-        inverse_suffix_exact,
-    };
-
-    fn allocPrint(chunk: Chunk, alloc: Allocator) ![]const u8 {
-        const MT = MatchType;
-        return switch (chunk.match_type) {
-            MT.fuzzy => std.fmt.allocPrint(alloc, "{s}", .{chunk.pattern}),
-            MT.exact => std.fmt.allocPrint(alloc, "'{s}", .{chunk.pattern}),
-            MT.prefix_exact => std.fmt.allocPrint(alloc, "^{s}", .{chunk.pattern}),
-            MT.suffix_exact => std.fmt.allocPrint(alloc, "{s}$", .{chunk.pattern}),
-            MT.inverse_exact => std.fmt.allocPrint(alloc, "!{s}", .{chunk.pattern}),
-            MT.inverse_prefix_exact => std.fmt.allocPrint(alloc, "!^{s}", .{chunk.pattern}),
-            MT.inverse_suffix_exact => std.fmt.allocPrint(alloc, "!{s}$", .{chunk.pattern}),
-        };
     }
 };
 
@@ -141,7 +117,7 @@ test "term handling errors" {
         try sliceEq(u8, "foo", term.expr.or_op.l.chunk.pattern);
 
         try sliceEq(u8, "", term.expr.or_op.r.chunk.pattern);
-        try expect(Chunk.MatchType.fuzzy == term.expr.or_op.r.chunk.match_type);
+        try expect(MatchType.fuzzy == term.expr.or_op.r.chunk.match_type);
     }
     {
         try term.parse("bar ");
@@ -150,7 +126,7 @@ test "term handling errors" {
         try sliceEq(u8, "bar", term.expr.and_op.l.chunk.pattern);
 
         try sliceEq(u8, "", term.expr.and_op.r.chunk.pattern);
-        try expect(Chunk.MatchType.fuzzy == term.expr.and_op.r.chunk.match_type);
+        try expect(MatchType.fuzzy == term.expr.and_op.r.chunk.match_type);
     }
     // Pending for chunk shouldn't cause errors, instead should assume empty string
     {
@@ -158,21 +134,21 @@ test "term handling errors" {
 
         try expect(Expr.chunk == term.expr);
         try sliceEq(u8, "", term.expr.chunk.pattern);
-        try expect(Chunk.MatchType.inverse_exact == term.expr.chunk.match_type);
+        try expect(MatchType.inverse_exact == term.expr.chunk.match_type);
     }
     {
         try term.parse("!^");
 
         try expect(Expr.chunk == term.expr);
         try sliceEq(u8, "", term.expr.chunk.pattern);
-        try expect(Chunk.MatchType.inverse_prefix_exact == term.expr.chunk.match_type);
+        try expect(MatchType.inverse_prefix_exact == term.expr.chunk.match_type);
     }
     {
         try term.parse("!$");
 
         try expect(Expr.chunk == term.expr);
         try sliceEq(u8, "", term.expr.chunk.pattern);
-        try expect(Chunk.MatchType.inverse_suffix_exact == term.expr.chunk.match_type);
+        try expect(MatchType.inverse_suffix_exact == term.expr.chunk.match_type);
     }
 }
 
@@ -242,36 +218,36 @@ const Parser = struct {
     // chunk -> !?^?TEXT$?
     fn chunk(self: *Self) Expr {
         if (self.matchAny(&.{ Tag.exact, Tag.inverse, Tag.prefix, Tag.suffix, Tag.text })) {
-            var chk = Chunk{};
+            var _chunk = Chunk{};
             const prev = self.previous();
             switch (prev.tag) {
                 Tag.text => {
-                    chk.pattern = prev.lexeme.?;
+                    _chunk.pattern = prev.lexeme.?;
                 },
                 Tag.exact => {
-                    chk.match_type = Chunk.MatchType.exact;
+                    _chunk.match_type = MatchType.exact;
                     const text = self.consume(Tag.text, "expected text; fallback to empty string") catch Token{ .tag = Tag.text, .lexeme = "" };
-                    chk.pattern = text.lexeme.?;
+                    _chunk.pattern = text.lexeme.?;
                 },
                 Tag.inverse => {
                     if (self.match(Tag.text)) {
-                        chk.match_type = Chunk.MatchType.inverse_exact;
+                        _chunk.match_type = MatchType.inverse_exact;
                     } else if (self.match(Tag.prefix)) {
-                        chk.match_type = Chunk.MatchType.inverse_prefix_exact;
+                        _chunk.match_type = MatchType.inverse_prefix_exact;
                         _ = self.advance();
                     }
                     const text = self.consume(Tag.text, "expected text; fallback to empty string") catch Token{ .tag = Tag.text, .lexeme = "" };
-                    chk.pattern = text.lexeme.?;
+                    _chunk.pattern = text.lexeme.?;
                     if (self.match(Tag.suffix)) {
                         // FIXME: !^foo$ makes no sense. Yet here, if this happened we'll ignore the prefix and instead use the suffix
                         // What is the right behaviour?
-                        chk.match_type = Chunk.MatchType.inverse_suffix_exact;
+                        _chunk.match_type = MatchType.inverse_suffix_exact;
                         _ = self.advance();
                     }
                 },
                 else => unreachable,
             }
-            return Expr{ .chunk = chk };
+            return Expr{ .chunk = _chunk };
         }
         return .{ .chunk = .{} };
     }
@@ -343,17 +319,17 @@ const Parser = struct {
         // left
         const l_or = and_expr.l.or_op;
         try sliceEq(u8, "foo", l_or.l.chunk.pattern);
-        try expect(l_or.l.chunk.match_type == Chunk.MatchType.exact);
+        try expect(l_or.l.chunk.match_type == MatchType.exact);
 
         try sliceEq(u8, "bar", l_or.r.chunk.pattern);
-        try expect(l_or.r.chunk.match_type == Chunk.MatchType.inverse_exact);
+        try expect(l_or.r.chunk.match_type == MatchType.inverse_exact);
         // right
         const r_or = and_expr.r.or_op;
         try sliceEq(u8, "baz", r_or.l.chunk.pattern);
-        try expect(r_or.l.chunk.match_type == Chunk.MatchType.inverse_suffix_exact);
+        try expect(r_or.l.chunk.match_type == MatchType.inverse_suffix_exact);
 
         try sliceEq(u8, "bax", r_or.r.chunk.pattern);
-        try expect(r_or.r.chunk.match_type == Chunk.MatchType.inverse_prefix_exact);
+        try expect(r_or.r.chunk.match_type == MatchType.inverse_prefix_exact);
     }
 };
 
