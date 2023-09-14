@@ -34,33 +34,34 @@ pub const MatchFinder = struct {
         return self.reduceScore(null, self.term.expr);
     }
     fn reduceScore(self: Self, acc: ?isize, expr: term.Expr) ?isize {
+        // short circuit both "and" and "or" by evaluating left branch first
         return switch (expr) {
             term.Expr.chunk => |chunk| {
-                return if (self.matchChunk(chunk)) |s| {
-                    return if (acc) |ss| {
+                return if (self.matchChunk(chunk)) |chunk_s| {
+                    return if (acc) |acc_s| {
                         // FIXME: Should it be addition or max? same for other branches
                         // return ss +| s;
-                        return @max(s, ss);
-                    } else s;
+                        return @max(chunk_s, acc_s);
+                    } else chunk_s;
                 } else null;
             },
             term.Expr.and_op => |op| {
-                const ls = self.reduceScore(acc, op.l.*);
-                return if (ls) |s| {
-                    const rs = self.reduceScore(s, op.r.*);
-                    return if (rs) |ss| {
+                const _ls = self.reduceScore(acc, op.l.*);
+                return if (_ls) |ls| {
+                    const _rs = self.reduceScore(ls, op.r.*);
+                    return if (_rs) |rs| {
                         // return s +| ss;
-                        return @max(s, ss);
+                        return @max(ls, rs);
                     } else null;
                 } else null;
             },
             term.Expr.or_op => |op| {
-                const ls = self.reduceScore(acc, op.l.*);
-                return if (ls) |s| {
-                    return s;
+                const _ls = self.reduceScore(acc, op.l.*);
+                return if (_ls) |ls| {
+                    return ls;
                 } else {
-                    const rs = self.reduceScore(acc, op.r.*);
-                    return if (rs) |ss| ss else null;
+                    const _rs = self.reduceScore(acc, op.r.*);
+                    return if (_rs) |rs| rs else null;
                 };
             },
         };
