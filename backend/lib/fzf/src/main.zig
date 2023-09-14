@@ -3,14 +3,14 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const algo = @import("algo.zig");
 const term = @import("term.zig");
-const chk = @import("chunk.zig");
-const Chunk = chk.Chunk;
+const pattern = @import("pattern.zig");
+const Pattern = pattern.Pattern;
 const testing = std.testing;
 const expect = testing.expect;
 const sliceEq = testing.expectEqualSlices;
 
 pub const match = algo.match;
-pub const MatchType = chk.MatchType;
+pub const MatchType = pattern.MatchType;
 
 pub const MatchFinder = struct {
     const Self = @This();
@@ -68,16 +68,16 @@ pub const MatchFinder = struct {
     fn reduceScore(self: Self, text: []const u8, acc: ?isize, expr: term.Expr) ?isize {
         // short circuit both "and" and "or" by evaluating left branch first
         return switch (expr) {
-            term.Expr.chunk => |chunk| {
-                const case_sen = self.smart_case and chk.caseVaries(chunk.pattern);
-                const score = match(text, chunk.pattern, case_sen, chunk.match_type);
+            term.Expr.pattern => |_pattern| {
+                const case_sen = self.smart_case and pattern.caseVaries(_pattern.raw);
+                const score = match(text, _pattern.raw, case_sen, _pattern.match_type);
 
-                return if (score) |chunk_s| {
+                return if (score) |pattern_s| {
                     return if (acc) |acc_s| {
                         // FIXME: Should it be addition or max? same for other branches
                         // return ss +| s;
-                        return @max(chunk_s, acc_s);
-                    } else chunk_s;
+                        return @max(pattern_s, acc_s);
+                    } else pattern_s;
                 } else null;
             },
             term.Expr.and_op => |op| {
@@ -111,7 +111,6 @@ test "Matcher" {
     const texts = &[_][]const u8{ "unique", "foo", "foobar", "barfoo", "$order^^^", "xyz_", "abxy", "$order^", "$order^^" };
     var matcher = MatchFinder.init(a, texts);
     defer matcher.deinit();
-
     {
         const results = try matcher.search("unique");
         defer a.free(results);

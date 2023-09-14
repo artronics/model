@@ -38,9 +38,9 @@
                 "kind": "test",
             }
         },{
-            "label": "run chunk tests",
+            "label": "run pattern tests",
             "type": "shell",
-            "command": "${env:HOME}/.local/bin/zig test -femit-bin=${workspaceFolder}/zig-out/lib/chunk-test ${workspaceFolder}/src/chunk.zig",
+            "command": "${env:HOME}/.local/bin/zig test -femit-bin=${workspaceFolder}/zig-out/lib/pattern-test ${workspaceFolder}/src/pattern.zig",
             "problemMatcher": [],
             "group": {
                 "kind": "test",

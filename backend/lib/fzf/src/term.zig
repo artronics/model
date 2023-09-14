@@ -2,9 +2,9 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
-const chk = @import("chunk.zig");
-const MatchType = chk.MatchType;
-const Chunk = chk.Chunk;
+const pattern = @import("pattern.zig");
+const MatchType = pattern.MatchType;
+const Pattern = pattern.Pattern;
 const testing = std.testing;
 const expect = testing.expect;
 const sliceEq = testing.expectEqualSlices;
@@ -27,7 +27,7 @@ const BinExpr = struct {
 pub const Expr = union(enum) {
     and_op: BinExpr,
     or_op: BinExpr,
-    chunk: Chunk,
+    pattern: Pattern,
 
     fn string(e: Expr, alloc: Allocator, str: *ArrayList(u8)) Allocator.Error!void {
         switch (e) {
@@ -39,8 +39,8 @@ pub const Expr = union(enum) {
                 try str.appendSlice("(or ");
                 try op.string(alloc, str);
             },
-            Expr.chunk => |chunk| {
-                const s = try chunk.allocPrint(alloc);
+            Expr.pattern => |ptrn| {
+                const s = try ptrn.allocPrint(alloc);
                 defer alloc.free(s);
                 try str.appendSlice(s);
             },
@@ -92,18 +92,18 @@ test "term" {
     {
         try term.parse("foo bar");
 
-        try sliceEq(u8, "foo", term.expr.and_op.l.chunk.pattern);
-        try sliceEq(u8, "bar", term.expr.and_op.r.chunk.pattern);
+        try sliceEq(u8, "foo", term.expr.and_op.l.pattern.raw);
+        try sliceEq(u8, "bar", term.expr.and_op.r.pattern.raw);
     }
     {
         try term.parse("baz | bax");
 
-        try sliceEq(u8, "baz", term.expr.or_op.l.chunk.pattern);
-        try sliceEq(u8, "bax", term.expr.or_op.r.chunk.pattern);
+        try sliceEq(u8, "baz", term.expr.or_op.l.pattern.raw);
+        try sliceEq(u8, "bax", term.expr.or_op.r.pattern.raw);
     }
     {
         try term.parse("foobar");
-        try sliceEq(u8, "foobar", term.expr.chunk.pattern);
+        try sliceEq(u8, "foobar", term.expr.pattern.raw);
     }
 }
 test "term handling errors" {
@@ -111,46 +111,46 @@ test "term handling errors" {
     var term = Term.init(a);
     defer term.deinit();
 
-    // Insufficient tokens should produce an empty chunk with default fields
+    // Insufficient tokens should produce an empty pattern with default fields
     {
         try term.parse("foo | ");
 
         try expect(Expr.or_op == term.expr);
-        try sliceEq(u8, "foo", term.expr.or_op.l.chunk.pattern);
+        try sliceEq(u8, "foo", term.expr.or_op.l.pattern.raw);
 
-        try sliceEq(u8, "", term.expr.or_op.r.chunk.pattern);
-        try expect(MatchType.fuzzy == term.expr.or_op.r.chunk.match_type);
+        try sliceEq(u8, "", term.expr.or_op.r.pattern.raw);
+        try expect(MatchType.fuzzy == term.expr.or_op.r.pattern.match_type);
     }
     {
         try term.parse("bar ");
 
         try expect(Expr.and_op == term.expr);
-        try sliceEq(u8, "bar", term.expr.and_op.l.chunk.pattern);
+        try sliceEq(u8, "bar", term.expr.and_op.l.pattern.raw);
 
-        try sliceEq(u8, "", term.expr.and_op.r.chunk.pattern);
-        try expect(MatchType.fuzzy == term.expr.and_op.r.chunk.match_type);
+        try sliceEq(u8, "", term.expr.and_op.r.pattern.raw);
+        try expect(MatchType.fuzzy == term.expr.and_op.r.pattern.match_type);
     }
-    // Pending for chunk shouldn't cause errors, instead should assume empty string
+    // Pending for pattern shouldn't cause errors, instead should assume empty string
     {
         try term.parse("!");
 
-        try expect(Expr.chunk == term.expr);
-        try sliceEq(u8, "", term.expr.chunk.pattern);
-        try expect(MatchType.inverse_exact == term.expr.chunk.match_type);
+        try expect(Expr.pattern == term.expr);
+        try sliceEq(u8, "", term.expr.pattern.raw);
+        try expect(MatchType.inverse_exact == term.expr.pattern.match_type);
     }
     {
         try term.parse("!^");
 
-        try expect(Expr.chunk == term.expr);
-        try sliceEq(u8, "", term.expr.chunk.pattern);
-        try expect(MatchType.inverse_prefix_exact == term.expr.chunk.match_type);
+        try expect(Expr.pattern == term.expr);
+        try sliceEq(u8, "", term.expr.pattern.raw);
+        try expect(MatchType.inverse_prefix_exact == term.expr.pattern.match_type);
     }
     {
         try term.parse("!$");
 
-        try expect(Expr.chunk == term.expr);
-        try sliceEq(u8, "", term.expr.chunk.pattern);
-        try expect(MatchType.inverse_suffix_exact == term.expr.chunk.match_type);
+        try expect(Expr.pattern == term.expr);
+        try sliceEq(u8, "", term.expr.pattern.raw);
+        try expect(MatchType.inverse_suffix_exact == term.expr.pattern.match_type);
     }
 }
 
@@ -197,16 +197,16 @@ const Parser = struct {
 
         return lhs;
     }
-    // orExpr -> chunk ( | chunk)*
+    // orExpr -> pattern ( | pattern)*
     fn orExpr(self: *Self) !Expr {
-        var lhs = self.chunk();
+        var lhs = self.pattern();
 
         while (self.matchAny(&.{Tag.or_op})) {
             var l = try self.allocator.create(Expr);
             errdefer self.allocator.destroy(l);
             l.* = lhs;
 
-            const rhs = self.chunk();
+            const rhs = self.pattern();
             var r = try self.allocator.create(Expr);
             errdefer self.allocator.destroy(r);
             r.* = rhs;
@@ -217,50 +217,50 @@ const Parser = struct {
         return lhs;
     }
 
-    // chunk -> !?^?TEXT$?
-    fn chunk(self: *Self) Expr {
+    // pattern -> !?^?TEXT$?
+    fn pattern(self: *Self) Expr {
         if (self.matchAny(&.{ Tag.exact, Tag.inverse, Tag.prefix, Tag.suffix, Tag.text })) {
-            var _chunk = Chunk{};
+            var _pattern = Pattern{};
             const prev = self.previous();
             switch (prev.tag) {
                 Tag.text => {
-                    _chunk.pattern = prev.lexeme.?;
+                    _pattern.raw = prev.lexeme.?;
                     if (self.match(Tag.suffix)) {
-                        _chunk.match_type = MatchType.suffix_exact;
+                        _pattern.match_type = MatchType.suffix_exact;
                         _ = self.advance();
                     }
                 },
                 Tag.exact => {
-                    _chunk.match_type = MatchType.exact;
+                    _pattern.match_type = MatchType.exact;
                     const text = self.consume(Tag.text, "expected text; fallback to empty string") catch Token{ .tag = Tag.text, .lexeme = "" };
-                    _chunk.pattern = text.lexeme.?;
+                    _pattern.raw = text.lexeme.?;
                 },
                 Tag.inverse => {
                     if (self.match(Tag.text)) {
-                        _chunk.match_type = MatchType.inverse_exact;
+                        _pattern.match_type = MatchType.inverse_exact;
                     } else if (self.match(Tag.prefix)) {
-                        _chunk.match_type = MatchType.inverse_prefix_exact;
+                        _pattern.match_type = MatchType.inverse_prefix_exact;
                         _ = self.advance();
                     }
                     const text = self.consume(Tag.text, "expected text; fallback to empty string") catch Token{ .tag = Tag.text, .lexeme = "" };
-                    _chunk.pattern = text.lexeme.?;
+                    _pattern.raw = text.lexeme.?;
                     if (self.match(Tag.suffix)) {
                         // FIXME: !^foo$ makes no sense. Yet here, if this happened we'll ignore the prefix and instead use the suffix
                         // What is the right behaviour?
-                        _chunk.match_type = MatchType.inverse_suffix_exact;
+                        _pattern.match_type = MatchType.inverse_suffix_exact;
                         _ = self.advance();
                     }
                 },
                 Tag.prefix => {
-                    _chunk.match_type = MatchType.prefix_exact;
+                    _pattern.match_type = MatchType.prefix_exact;
                     const text = self.consume(Tag.text, "expected text; fallback to empty string") catch Token{ .tag = Tag.text, .lexeme = "" };
-                    _chunk.pattern = text.lexeme.?;
+                    _pattern.raw = text.lexeme.?;
                 },
                 else => unreachable,
             }
-            return Expr{ .chunk = _chunk };
+            return Expr{ .pattern = _pattern };
         }
-        return .{ .chunk = .{} };
+        return .{ .pattern = .{} };
     }
     fn advance(self: *Self) Token {
         if (!self.isEof()) self.current += 1;
@@ -304,8 +304,8 @@ const Parser = struct {
 
             var parser = Parser.init(arena.allocator(), &tokens);
             const exp = try parser.parse();
-            try sliceEq(u8, "", exp.chunk.pattern);
-            try expect(exp.chunk.match_type == MatchType.fuzzy);
+            try sliceEq(u8, "", exp.pattern.raw);
+            try expect(exp.pattern.match_type == MatchType.fuzzy);
         }
         {
             // foo ^bar baz$ ->  (and (and foo ^bar) baz$)
@@ -332,14 +332,14 @@ const Parser = struct {
             const root = exp.and_op;
             // left
             const l_and = root.l.and_op;
-            try sliceEq(u8, "foo", l_and.l.chunk.pattern);
-            try expect(l_and.l.chunk.match_type == MatchType.fuzzy);
+            try sliceEq(u8, "foo", l_and.l.pattern.raw);
+            try expect(l_and.l.pattern.match_type == MatchType.fuzzy);
 
-            try sliceEq(u8, "bar", l_and.r.chunk.pattern);
-            try expect(l_and.r.chunk.match_type == MatchType.prefix_exact);
+            try sliceEq(u8, "bar", l_and.r.pattern.raw);
+            try expect(l_and.r.pattern.match_type == MatchType.prefix_exact);
             // right
-            try sliceEq(u8, "baz", root.r.chunk.pattern);
-            try expect(root.r.chunk.match_type == MatchType.suffix_exact);
+            try sliceEq(u8, "baz", root.r.pattern.raw);
+            try expect(root.r.pattern.match_type == MatchType.suffix_exact);
         }
         {
             // 'foo | !bar !baz$ | !^bax ->  (and (or 'foo !bar) (or !baz$ !^bax))
@@ -373,18 +373,18 @@ const Parser = struct {
             const and_expr = exp.and_op;
             // left
             const l_or = and_expr.l.or_op;
-            try sliceEq(u8, "foo", l_or.l.chunk.pattern);
-            try expect(l_or.l.chunk.match_type == MatchType.exact);
+            try sliceEq(u8, "foo", l_or.l.pattern.raw);
+            try expect(l_or.l.pattern.match_type == MatchType.exact);
 
-            try sliceEq(u8, "bar", l_or.r.chunk.pattern);
-            try expect(l_or.r.chunk.match_type == MatchType.inverse_exact);
+            try sliceEq(u8, "bar", l_or.r.pattern.raw);
+            try expect(l_or.r.pattern.match_type == MatchType.inverse_exact);
             // right
             const r_or = and_expr.r.or_op;
-            try sliceEq(u8, "baz", r_or.l.chunk.pattern);
-            try expect(r_or.l.chunk.match_type == MatchType.inverse_suffix_exact);
+            try sliceEq(u8, "baz", r_or.l.pattern.raw);
+            try expect(r_or.l.pattern.match_type == MatchType.inverse_suffix_exact);
 
-            try sliceEq(u8, "bax", r_or.r.chunk.pattern);
-            try expect(r_or.r.chunk.match_type == MatchType.inverse_prefix_exact);
+            try sliceEq(u8, "bax", r_or.r.pattern.raw);
+            try expect(r_or.r.pattern.match_type == MatchType.inverse_prefix_exact);
         }
     }
 };
@@ -430,13 +430,13 @@ const Scanner = struct {
     }
     fn scan(s: *Scanner) ![]const Token {
         while (!s.isEof()) {
-            try s.chunk();
+            try s.pattern();
             try s.operator();
         }
         try s.tokens.append(.{ .tag = Tag.eof });
         return s.tokens.items;
     }
-    fn chunk(s: *Scanner) !void {
+    fn pattern(s: *Scanner) !void {
         if (s.match('!')) {
             try s.tokens.append(.{ .tag = Tag.inverse });
 
@@ -523,8 +523,8 @@ const Scanner = struct {
         var buf = try a.alloc(u8, 1024);
         defer a.free(buf);
         {
-            const pattern = "";
-            var s = Scanner.init(a, pattern, buf);
+            const term = "";
+            var s = Scanner.init(a, term, buf);
             defer s.deinit();
 
             const tokens = try s.scan();
@@ -532,8 +532,8 @@ const Scanner = struct {
             try expect(tokens[0].tag == Tag.eof);
         }
         {
-            const pattern = "foobar";
-            var s = Scanner.init(a, pattern, buf);
+            const term = "foobar";
+            var s = Scanner.init(a, term, buf);
             defer s.deinit();
 
             const tokens = try s.scan();
@@ -542,8 +542,8 @@ const Scanner = struct {
             try sliceEq(u8, "foobar", tokens[0].lexeme.?);
         }
         {
-            const pattern = "foo bar | baz";
-            var s = Scanner.init(a, pattern, buf);
+            const term = "foo bar | baz";
+            var s = Scanner.init(a, term, buf);
             defer s.deinit();
 
             const tokens = try s.scan();
@@ -562,8 +562,8 @@ const Scanner = struct {
             try sliceEq(u8, "baz", tokens[4].lexeme.?);
         }
         {
-            const pattern = "!'foo !^bar$ !bax | ^!baz$";
-            var s = Scanner.init(a, pattern, buf);
+            const term = "!'foo !^bar$ !bax | ^!baz$";
+            var s = Scanner.init(a, term, buf);
             defer s.deinit();
 
             const tokens = try s.scan();
@@ -592,8 +592,8 @@ const Scanner = struct {
         var buf = try a.alloc(u8, 1024);
         defer a.free(buf);
 
-        const pattern = "\\!foo\\ bar\\$\\ ^bax\\ |\\ baz";
-        var s = Scanner.init(a, pattern, buf);
+        const term = "\\!foo\\ bar\\$\\ ^bax\\ |\\ baz";
+        var s = Scanner.init(a, term, buf);
         defer s.deinit();
 
         const tokens = try s.scan();

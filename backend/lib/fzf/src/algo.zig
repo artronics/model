@@ -2,7 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const toLower = std.ascii.toLower;
 const toUpper = std.ascii.toUpper;
-const MatchType = @import("chunk.zig").MatchType;
+const MatchType = @import("pattern.zig").MatchType;
 const testing = std.testing;
 const expect = testing.expect;
 
@@ -350,7 +350,7 @@ fn fuzzyMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?S
 
             if (boundary_slice) |b| {
                 delete_acc = 0;
-                // we don't want to give negative score if straight len is the same as boundary. i.e. full match for this chunk
+                // we don't want to give negative score if straight len is the same as boundary. i.e. full match for this pattern
                 // a boundary full match as extra positive score (boundary_match)
                 if (straight_acc != b.len) {
                     score.boundary_delete();

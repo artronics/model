@@ -12,20 +12,20 @@ pub const MatchType = enum {
     inverse_suffix_exact,
 };
 
-pub const Chunk = struct {
-    pattern: []const u8 = undefined,
+pub const Pattern = struct {
+    raw: []const u8 = undefined,
     match_type: MatchType = MatchType.fuzzy,
 
-    fn allocPrint(chunk: Chunk, alloc: Allocator) ![]const u8 {
+    fn allocPrint(pattern: Pattern, alloc: Allocator) ![]const u8 {
         const MT = MatchType;
-        return switch (chunk.match_type) {
-            MT.fuzzy => std.fmt.allocPrint(alloc, "{s}", .{chunk.pattern}),
-            MT.exact => std.fmt.allocPrint(alloc, "'{s}", .{chunk.pattern}),
-            MT.prefix_exact => std.fmt.allocPrint(alloc, "^{s}", .{chunk.pattern}),
-            MT.suffix_exact => std.fmt.allocPrint(alloc, "{s}$", .{chunk.pattern}),
-            MT.inverse_exact => std.fmt.allocPrint(alloc, "!{s}", .{chunk.pattern}),
-            MT.inverse_prefix_exact => std.fmt.allocPrint(alloc, "!^{s}", .{chunk.pattern}),
-            MT.inverse_suffix_exact => std.fmt.allocPrint(alloc, "!{s}$", .{chunk.pattern}),
+        return switch (pattern.match_type) {
+            MT.fuzzy => std.fmt.allocPrint(alloc, "{s}", .{pattern.raw}),
+            MT.exact => std.fmt.allocPrint(alloc, "'{s}", .{pattern.raw}),
+            MT.prefix_exact => std.fmt.allocPrint(alloc, "^{s}", .{pattern.raw}),
+            MT.suffix_exact => std.fmt.allocPrint(alloc, "{s}$", .{pattern.raw}),
+            MT.inverse_exact => std.fmt.allocPrint(alloc, "!{s}", .{pattern.raw}),
+            MT.inverse_prefix_exact => std.fmt.allocPrint(alloc, "!^{s}", .{pattern.raw}),
+            MT.inverse_suffix_exact => std.fmt.allocPrint(alloc, "!{s}$", .{pattern.raw}),
         };
     }
 };
