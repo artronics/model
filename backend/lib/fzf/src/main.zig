@@ -1,13 +1,13 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
-const fzf = @import("fzf.zig");
+const algo = @import("algo.zig");
 const pattern = @import("term.zig");
 const testing = std.testing;
 const expect = testing.expect;
 
-pub const match = fzf.match;
-pub const MatchType = fzf.MatchType;
+pub const match = algo.match;
+pub const MatchType = algo.MatchType;
 
 pub const MatchFinder = struct {
     const Self = @This();

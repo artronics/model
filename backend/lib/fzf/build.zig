@@ -2,8 +2,8 @@ const std = @import("std");
 const benchmark = @import("benchmark/build.zig");
 
 pub const pkg = std.build.Pkg{
-    .name = "fzf",
-    .source = .{ .path = thisDir() ++ "/src/fzf.zig" },
+    .name = "matchfinder",
+    .source = .{ .path = thisDir() ++ "/src/main.zig" },
 };
 
 pub fn build(b: *std.Build) void {
@@ -14,14 +14,14 @@ pub fn build(b: *std.Build) void {
     options.addOption(usize, "max_pattern_len", 32);
 
     const lib = b.addStaticLibrary(.{
-        .name = "fzf",
-        .root_source_file = .{ .path = "src/fzf.zig" },
+        .name = "matchfinder",
+        .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,
     });
 
     const m = options.createModule();
-    lib.addModule("fzf_options", m);
+    lib.addModule("mf_options", m);
 
     // benchmark
     var bench_exe = benchmark.package(b, optimize, target);
@@ -38,11 +38,11 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(lib);
     const main_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/fzf.zig" },
+        .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,
     });
-    main_tests.addModule("fzf_options", m);
+    main_tests.addModule("mf_options", m);
 
     const run_main_tests = b.addRunArtifact(main_tests);
 

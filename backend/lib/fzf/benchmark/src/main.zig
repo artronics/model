@@ -2,7 +2,7 @@ const std = @import("std");
 const time = std.time;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
-const fzf = @import("fzf");
+const mf = @import("matchfinder");
 
 fn benchmark_lines(allocator: Allocator, path: []const u8) !ArrayList([]const u8) {
     var list = try ArrayList([]const u8).initCapacity(allocator, 80000);
@@ -47,7 +47,7 @@ fn run(a: Allocator, texts: []const []const u8) !void {
 
     var timer = try time.Timer.start();
     for (texts) |text| {
-        if (fzf.match(text, pattern, false, fzf.MatchType.fuzzy)) |score| {
+        if (mf.match(text, pattern, false, mf.MatchType.fuzzy)) |score| {
             try results.append(.{ .text = text, .score = score });
         }
     }

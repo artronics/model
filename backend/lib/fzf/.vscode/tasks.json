@@ -21,9 +21,9 @@
             }
         },
         {
-            "label": "run fzf tests",
+            "label": "run algo tests",
             "type": "shell",
-            "command": "${env:HOME}/.local/bin/zig test -femit-bin=${workspaceFolder}/zig-out/lib/fzf-test ${workspaceFolder}/src/fzf.zig",
+            "command": "${env:HOME}/.local/bin/zig test -femit-bin=${workspaceFolder}/zig-out/lib/algo-test ${workspaceFolder}/src/algo.zig",
             "problemMatcher": [],
             "group": {
                 "kind": "test",

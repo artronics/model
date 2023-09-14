@@ -14,7 +14,7 @@ pub fn package(
     const m = b.createModule(.{
         .source_file = .{ .path = "src/main.zig" },
     });
-    benchmark.addModule("fzf", m);
+    benchmark.addModule("matchfinder", m);
 
     return benchmark;
 }

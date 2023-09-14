@@ -5,8 +5,8 @@ const ArrayList = std.ArrayList;
 const testing = std.testing;
 const expect = testing.expect;
 const sliceEq = testing.expectEqualSlices;
-// TODO: import fzf_options doesn't work when running test for this file
-// const options = @import("fzf_options");
+// TODO: import mf_options doesn't work when running test for this file
+// const options = @import("mf_options");
 const options = .{ .max_pattern_len = 64, .max_sub_pattern_size = 8 };
 const max_pattern_len = options.max_pattern_len;
 
