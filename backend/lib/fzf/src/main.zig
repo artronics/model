@@ -2,7 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const fzf = @import("fzf.zig");
-const pattern = @import("pattern.zig");
+const pattern = @import("term.zig");
 const testing = std.testing;
 const expect = testing.expect;
 
@@ -13,14 +13,14 @@ pub const MatchFinder = struct {
     const Self = @This();
 
     allocator: Allocator,
-    pattern: pattern.Pattern,
+    pattern: pattern.Term,
     smart_case: bool = false,
     haystack: []const []const u8,
 
     pub fn init(allocator: Allocator, texts: []const []const u8) Self {
         return .{
             .allocator = allocator,
-            .pattern = pattern.Pattern.init(allocator),
+            .pattern = pattern.Term.init(allocator),
             .haystack = texts,
         };
     }

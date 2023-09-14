@@ -72,19 +72,19 @@ pub const Chunk = struct {
     }
 };
 
-pub const Pattern = struct {
+pub const Term = struct {
     arena: ArenaAllocator,
     expr: Expr = undefined,
     buf: []u8 = undefined,
 
-    pub fn init(allocator: Allocator) Pattern {
+    pub fn init(allocator: Allocator) Term {
         return .{ .arena = ArenaAllocator.init(allocator) };
     }
-    pub fn deinit(self: Pattern) void {
+    pub fn deinit(self: Term) void {
         self.arena.deinit();
     }
 
-    pub fn parse(self: *Pattern, pattern: []const u8) !void {
+    pub fn parse(self: *Term, pattern: []const u8) !void {
         const alloc = self.arena.allocator();
         self.buf = try alloc.alloc(u8, pattern.len);
 
@@ -97,7 +97,7 @@ pub const Pattern = struct {
         self.expr = try parser.parse();
     }
 
-    fn allocPrint(pattern: Pattern, alloc: Allocator) ![]const u8 {
+    fn allocPrint(pattern: Term, alloc: Allocator) ![]const u8 {
         var string = ArrayList(u8).init(alloc);
         defer string.deinit();
         try pattern.expr.string(alloc, &string);
@@ -108,7 +108,7 @@ pub const Pattern = struct {
 
 test "pattern" {
     const a = testing.allocator;
-    var pattern = Pattern.init(a);
+    var pattern = Term.init(a);
     defer pattern.deinit();
 
     {
@@ -130,7 +130,7 @@ test "pattern" {
 }
 test "pattern handling errors" {
     const a = testing.allocator;
-    var pattern = Pattern.init(a);
+    var pattern = Term.init(a);
     defer pattern.deinit();
 
     // Insufficient tokens should produce an empty chunk with default fields
