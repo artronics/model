@@ -37,6 +37,14 @@
             "group": {
                 "kind": "test",
             }
+        },{
+            "label": "run chunk tests",
+            "type": "shell",
+            "command": "${env:HOME}/.local/bin/zig test -femit-bin=${workspaceFolder}/zig-out/lib/chunk-test ${workspaceFolder}/src/chunk.zig",
+            "problemMatcher": [],
+            "group": {
+                "kind": "test",
+            }
         },
         {
             "label": "run benchmark",
