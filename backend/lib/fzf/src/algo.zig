@@ -224,6 +224,9 @@ test "exact match" {
         try expect(3 == s.?._copy);
         try expect(qs(3) == s.?._straight_acc);
 
+        s = exactMatch("foobar", "foo", ci, mt);
+        try expect(null == s);
+
         s = exactMatch("fooBar", "Bar", cs, mt);
         try expect(3 == s.?._copy);
         try expect(qs(3) == s.?._straight_acc);
@@ -374,7 +377,7 @@ fn fuzzyMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?S
     }
 
     return if (j == 0) {
-        if (i == 0) {
+        if (text.len == pattern.len) {
             score.full();
         } else {
             // commit what is left + kill
@@ -392,7 +395,7 @@ fn fuzzyMatch(text: []const u8, pattern: []const u8, is_case_sensitive: bool) ?S
     } else null;
 }
 
-test "reverse fuzzy match" {
+test "fuzzy match" {
     const cs = true; // case-sensitive
     const ci = false; // case-insensitive
     { // Copy
@@ -488,6 +491,11 @@ test "reverse fuzzy match" {
 
         r = fuzzyMatch("??/xxa???", "a", ci);
         try expect(r.?._kill == 2);
+    }
+    {
+        const full_score = (Score{ ._full = true }).score();
+        var r = fuzzyMatch("foobar", "foo", cs);
+        try expect(r.?.score() != full_score); // regression: making sure we don't just consider i==0 for full match
     }
 }
 
