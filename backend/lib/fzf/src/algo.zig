@@ -2,6 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const toLower = std.ascii.toLower;
 const toUpper = std.ascii.toUpper;
+const MatchType = @import("chunk.zig").MatchType;
 const testing = std.testing;
 const expect = testing.expect;
 
@@ -79,20 +80,6 @@ const Score = struct {
     }
 };
 
-pub const MatchType = enum(u8) {
-    // numbers are ordered in priority. The lower the number the higher the priority.
-    // higher priority matches gives the result faster therefore, gives the final decision faster.
-    inverse_prefix_exact = 0,
-    inverse_suffix_exact = 1,
-
-    prefix_exact = 2,
-    suffix_exact = 3,
-
-    exact = 4,
-    inverse_exact = 5,
-
-    fuzzy = 6,
-};
 pub fn match(text: []const u8, pattern: []const u8, is_case_sensitive: bool, match_type: MatchType) ?isize {
     if (pattern.len == 0) return (Score{}).score(); // empty pattern matches everything, even in inverse
 

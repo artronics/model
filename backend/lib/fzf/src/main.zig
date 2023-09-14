@@ -3,11 +3,13 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const algo = @import("algo.zig");
 const term = @import("term.zig");
+const chk = @import("chunk.zig");
+const Chunk = chk.Chunk;
 const testing = std.testing;
 const expect = testing.expect;
 
 pub const match = algo.match;
-pub const MatchType = algo.MatchType;
+pub const MatchType = chk.MatchType;
 
 pub const MatchFinder = struct {
     const Self = @This();
@@ -63,51 +65,12 @@ pub const MatchFinder = struct {
             },
         };
     }
-    fn matchChunk(self: Self, chunk: term.Chunk) ?isize {
-        const Cmt = term.Chunk.MatchType;
-        const mt = switch (chunk.match_type) {
-            Cmt.fuzzy => MatchType.fuzzy,
-            Cmt.exact => MatchType.exact,
-            Cmt.suffix_exact => MatchType.suffix_exact,
-            Cmt.prefix_exact => MatchType.prefix_exact,
-            Cmt.inverse_exact => MatchType.inverse_exact,
-            Cmt.inverse_prefix_exact => MatchType.inverse_prefix_exact,
-            Cmt.inverse_suffix_exact => MatchType.inverse_suffix_exact,
-        };
+    fn matchChunk(self: Self, chunk: Chunk) ?isize {
+        const case_sen = self.smart_case and chk.caseVaries(chunk.pattern);
 
-        const case_sen = self.smart_case and caseVaries(chunk.pattern);
-
-        return match(self.haystack[0], chunk.pattern, case_sen, mt);
+        return match(self.haystack[0], chunk.pattern, case_sen, chunk.match_type);
     }
 };
-
-fn caseVaries(text: []const u8) bool {
-    if (text.len < 2) return false;
-
-    var case = std.ascii.isUpper(text[0]);
-    var i: usize = 1;
-    while (i < text.len) : (i += 1) {
-        case = case != std.ascii.isUpper(text[i]);
-        if (case) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-test "case varies" {
-    try expect(!caseVaries(""));
-    try expect(!caseVaries("f"));
-    try expect(!caseVaries("F"));
-    try expect(!caseVaries("FF"));
-    try expect(!caseVaries("ff"));
-
-    try expect(caseVaries("Fo"));
-    try expect(caseVaries("fF"));
-    try expect(caseVaries("fOo"));
-    try expect(caseVaries("FoO"));
-}
 
 test "Matcher" {
     const a = testing.allocator;
