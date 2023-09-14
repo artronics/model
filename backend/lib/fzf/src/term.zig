@@ -60,6 +60,7 @@ pub const Term = struct {
         self.arena.deinit();
     }
 
+    // FIXME: arena should be deinit() at the start otherwise, memory will accumulate
     pub fn parse(self: *Term, term: []const u8) !void {
         const alloc = self.arena.allocator();
         self.buf = try alloc.alloc(u8, term.len);
@@ -223,6 +224,10 @@ const Parser = struct {
             switch (prev.tag) {
                 Tag.text => {
                     _chunk.pattern = prev.lexeme.?;
+                    if (self.match(Tag.suffix)) {
+                        _chunk.match_type = MatchType.suffix_exact;
+                        _ = self.advance();
+                    }
                 },
                 Tag.exact => {
                     _chunk.match_type = MatchType.exact;
@@ -244,6 +249,11 @@ const Parser = struct {
                         _chunk.match_type = MatchType.inverse_suffix_exact;
                         _ = self.advance();
                     }
+                },
+                Tag.prefix => {
+                    _chunk.match_type = MatchType.prefix_exact;
+                    const text = self.consume(Tag.text, "expected text; fallback to empty string") catch Token{ .tag = Tag.text, .lexeme = "" };
+                    _chunk.pattern = text.lexeme.?;
                 },
                 else => unreachable,
             }
@@ -287,49 +297,94 @@ const Parser = struct {
     test "parser" {
         var arena = ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
-        // ^foo | !bar !baz$ | !^bax ->  (and (or 'foo !bar) (or !baz$ !^bax))
-        const tokens = [_]Token{
-            .{ .tag = Tag.exact },
-            .{ .tag = Tag.text, .lexeme = "foo" },
+        {
+            // empty
+            const tokens = [_]Token{.{ .tag = Tag.eof }};
 
-            .{ .tag = Tag.or_op },
+            var parser = Parser.init(arena.allocator(), &tokens);
+            const exp = try parser.parse();
+            try sliceEq(u8, "", exp.chunk.pattern);
+            try expect(exp.chunk.match_type == MatchType.fuzzy);
+        }
+        {
+            // foo ^bar baz$ ->  (and (and foo ^bar) baz$)
+            const tokens = [_]Token{
+                .{ .tag = Tag.text, .lexeme = "foo" },
 
-            .{ .tag = Tag.inverse },
-            .{ .tag = Tag.text, .lexeme = "bar" },
+                .{ .tag = Tag.and_op },
 
-            .{ .tag = Tag.and_op },
+                .{ .tag = Tag.prefix },
+                .{ .tag = Tag.text, .lexeme = "bar" },
 
-            .{ .tag = Tag.inverse },
-            .{ .tag = Tag.text, .lexeme = "baz" },
-            .{ .tag = Tag.suffix },
+                .{ .tag = Tag.and_op },
 
-            .{ .tag = Tag.or_op },
+                .{ .tag = Tag.text, .lexeme = "baz" },
+                .{ .tag = Tag.suffix },
 
-            .{ .tag = Tag.inverse },
-            .{ .tag = Tag.prefix },
-            .{ .tag = Tag.text, .lexeme = "bax" },
+                .{ .tag = Tag.eof },
+            };
 
-            .{ .tag = Tag.eof },
-        };
-        var parser = Parser.init(arena.allocator(), &tokens);
+            var parser = Parser.init(arena.allocator(), &tokens);
 
-        const exp = try parser.parse();
+            const exp = try parser.parse();
 
-        const and_expr = exp.and_op;
-        // left
-        const l_or = and_expr.l.or_op;
-        try sliceEq(u8, "foo", l_or.l.chunk.pattern);
-        try expect(l_or.l.chunk.match_type == MatchType.exact);
+            const root = exp.and_op;
+            // left
+            const l_and = root.l.and_op;
+            try sliceEq(u8, "foo", l_and.l.chunk.pattern);
+            try expect(l_and.l.chunk.match_type == MatchType.fuzzy);
 
-        try sliceEq(u8, "bar", l_or.r.chunk.pattern);
-        try expect(l_or.r.chunk.match_type == MatchType.inverse_exact);
-        // right
-        const r_or = and_expr.r.or_op;
-        try sliceEq(u8, "baz", r_or.l.chunk.pattern);
-        try expect(r_or.l.chunk.match_type == MatchType.inverse_suffix_exact);
+            try sliceEq(u8, "bar", l_and.r.chunk.pattern);
+            try expect(l_and.r.chunk.match_type == MatchType.prefix_exact);
+            // right
+            try sliceEq(u8, "baz", root.r.chunk.pattern);
+            try expect(root.r.chunk.match_type == MatchType.suffix_exact);
+        }
+        {
+            // 'foo | !bar !baz$ | !^bax ->  (and (or 'foo !bar) (or !baz$ !^bax))
+            const tokens = [_]Token{
+                .{ .tag = Tag.exact },
+                .{ .tag = Tag.text, .lexeme = "foo" },
 
-        try sliceEq(u8, "bax", r_or.r.chunk.pattern);
-        try expect(r_or.r.chunk.match_type == MatchType.inverse_prefix_exact);
+                .{ .tag = Tag.or_op },
+
+                .{ .tag = Tag.inverse },
+                .{ .tag = Tag.text, .lexeme = "bar" },
+
+                .{ .tag = Tag.and_op },
+
+                .{ .tag = Tag.inverse },
+                .{ .tag = Tag.text, .lexeme = "baz" },
+                .{ .tag = Tag.suffix },
+
+                .{ .tag = Tag.or_op },
+
+                .{ .tag = Tag.inverse },
+                .{ .tag = Tag.prefix },
+                .{ .tag = Tag.text, .lexeme = "bax" },
+
+                .{ .tag = Tag.eof },
+            };
+            var parser = Parser.init(arena.allocator(), &tokens);
+
+            const exp = try parser.parse();
+
+            const and_expr = exp.and_op;
+            // left
+            const l_or = and_expr.l.or_op;
+            try sliceEq(u8, "foo", l_or.l.chunk.pattern);
+            try expect(l_or.l.chunk.match_type == MatchType.exact);
+
+            try sliceEq(u8, "bar", l_or.r.chunk.pattern);
+            try expect(l_or.r.chunk.match_type == MatchType.inverse_exact);
+            // right
+            const r_or = and_expr.r.or_op;
+            try sliceEq(u8, "baz", r_or.l.chunk.pattern);
+            try expect(r_or.l.chunk.match_type == MatchType.inverse_suffix_exact);
+
+            try sliceEq(u8, "bax", r_or.r.chunk.pattern);
+            try expect(r_or.r.chunk.match_type == MatchType.inverse_prefix_exact);
+        }
     }
 };
 
