@@ -84,11 +84,11 @@ pub const Term = struct {
         self.arena.deinit();
     }
 
-    pub fn parse(self: *Term, pattern: []const u8) !void {
+    pub fn parse(self: *Term, term: []const u8) !void {
         const alloc = self.arena.allocator();
-        self.buf = try alloc.alloc(u8, pattern.len);
+        self.buf = try alloc.alloc(u8, term.len);
 
-        var scanner = Scanner.init(alloc, pattern, self.buf);
+        var scanner = Scanner.init(alloc, term, self.buf);
         defer scanner.deinit();
         const tokens = try scanner.scan();
 
@@ -97,82 +97,82 @@ pub const Term = struct {
         self.expr = try parser.parse();
     }
 
-    fn allocPrint(pattern: Term, alloc: Allocator) ![]const u8 {
+    fn allocPrint(term: Term, alloc: Allocator) ![]const u8 {
         var string = ArrayList(u8).init(alloc);
         defer string.deinit();
-        try pattern.expr.string(alloc, &string);
+        try term.expr.string(alloc, &string);
 
         return string.toOwnedSlice();
     }
 };
 
-test "pattern" {
+test "term" {
     const a = testing.allocator;
-    var pattern = Term.init(a);
-    defer pattern.deinit();
+    var term = Term.init(a);
+    defer term.deinit();
 
     {
-        try pattern.parse("foo bar");
+        try term.parse("foo bar");
 
-        try sliceEq(u8, "foo", pattern.expr.and_op.l.chunk.pattern);
-        try sliceEq(u8, "bar", pattern.expr.and_op.r.chunk.pattern);
+        try sliceEq(u8, "foo", term.expr.and_op.l.chunk.pattern);
+        try sliceEq(u8, "bar", term.expr.and_op.r.chunk.pattern);
     }
     {
-        try pattern.parse("baz | bax");
+        try term.parse("baz | bax");
 
-        try sliceEq(u8, "baz", pattern.expr.or_op.l.chunk.pattern);
-        try sliceEq(u8, "bax", pattern.expr.or_op.r.chunk.pattern);
+        try sliceEq(u8, "baz", term.expr.or_op.l.chunk.pattern);
+        try sliceEq(u8, "bax", term.expr.or_op.r.chunk.pattern);
     }
     {
-        try pattern.parse("foobar");
-        try sliceEq(u8, "foobar", pattern.expr.chunk.pattern);
+        try term.parse("foobar");
+        try sliceEq(u8, "foobar", term.expr.chunk.pattern);
     }
 }
-test "pattern handling errors" {
+test "term handling errors" {
     const a = testing.allocator;
-    var pattern = Term.init(a);
-    defer pattern.deinit();
+    var term = Term.init(a);
+    defer term.deinit();
 
     // Insufficient tokens should produce an empty chunk with default fields
     {
-        try pattern.parse("foo | ");
+        try term.parse("foo | ");
 
-        try expect(Expr.or_op == pattern.expr);
-        try sliceEq(u8, "foo", pattern.expr.or_op.l.chunk.pattern);
+        try expect(Expr.or_op == term.expr);
+        try sliceEq(u8, "foo", term.expr.or_op.l.chunk.pattern);
 
-        try sliceEq(u8, "", pattern.expr.or_op.r.chunk.pattern);
-        try expect(Chunk.MatchType.fuzzy == pattern.expr.or_op.r.chunk.match_type);
+        try sliceEq(u8, "", term.expr.or_op.r.chunk.pattern);
+        try expect(Chunk.MatchType.fuzzy == term.expr.or_op.r.chunk.match_type);
     }
     {
-        try pattern.parse("bar ");
+        try term.parse("bar ");
 
-        try expect(Expr.and_op == pattern.expr);
-        try sliceEq(u8, "bar", pattern.expr.and_op.l.chunk.pattern);
+        try expect(Expr.and_op == term.expr);
+        try sliceEq(u8, "bar", term.expr.and_op.l.chunk.pattern);
 
-        try sliceEq(u8, "", pattern.expr.and_op.r.chunk.pattern);
-        try expect(Chunk.MatchType.fuzzy == pattern.expr.and_op.r.chunk.match_type);
+        try sliceEq(u8, "", term.expr.and_op.r.chunk.pattern);
+        try expect(Chunk.MatchType.fuzzy == term.expr.and_op.r.chunk.match_type);
     }
     // Pending for chunk shouldn't cause errors, instead should assume empty string
     {
-        try pattern.parse("!");
+        try term.parse("!");
 
-        try expect(Expr.chunk == pattern.expr);
-        try sliceEq(u8, "", pattern.expr.chunk.pattern);
-        try expect(Chunk.MatchType.inverse_exact == pattern.expr.chunk.match_type);
+        try expect(Expr.chunk == term.expr);
+        try sliceEq(u8, "", term.expr.chunk.pattern);
+        try expect(Chunk.MatchType.inverse_exact == term.expr.chunk.match_type);
     }
     {
-        try pattern.parse("!^");
+        try term.parse("!^");
 
-        try expect(Expr.chunk == pattern.expr);
-        try sliceEq(u8, "", pattern.expr.chunk.pattern);
-        try expect(Chunk.MatchType.inverse_prefix_exact == pattern.expr.chunk.match_type);
+        try expect(Expr.chunk == term.expr);
+        try sliceEq(u8, "", term.expr.chunk.pattern);
+        try expect(Chunk.MatchType.inverse_prefix_exact == term.expr.chunk.match_type);
     }
     {
-        try pattern.parse("!$");
+        try term.parse("!$");
 
-        try expect(Expr.chunk == pattern.expr);
-        try sliceEq(u8, "", pattern.expr.chunk.pattern);
-        try expect(Chunk.MatchType.inverse_suffix_exact == pattern.expr.chunk.match_type);
+        try expect(Expr.chunk == term.expr);
+        try sliceEq(u8, "", term.expr.chunk.pattern);
+        try expect(Chunk.MatchType.inverse_suffix_exact == term.expr.chunk.match_type);
     }
 }
 
